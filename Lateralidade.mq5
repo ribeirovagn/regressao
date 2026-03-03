@@ -48,7 +48,7 @@ input double InpScoreSlopeWeight = 0.65; // peso do slope no score 0..1
 
 // Zonas (clusters)
 input int InpMinZoneBars = 20;
-input int InpGapTolerance = 3;
+input int InpGapTolerance = 5;
 
 // Extensão por rompimento
 input bool InpExtendUntilBreak = true;
@@ -321,6 +321,8 @@ long BuildRenderSignature(const ZoneInfo &mostRecent,
 //+------------------------------------------------------------------+
 int OnInit()
 {
+  ObjectsDeleteAll(0, -1, -1);
+
   if (InpWindow < 2)
     return INIT_PARAMETERS_INCORRECT;
   if (InpR2Threshold <= 0.0)
