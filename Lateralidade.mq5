@@ -24,7 +24,7 @@
 
 //---------------- INPUTS --------------------------------------------
 // LR window
-input int InpWindow = 50;
+input int InpWindow = 180;
 
 // Normalização do slope:
 // 0 = b/mean(y)
@@ -34,7 +34,7 @@ enum ENUM_SLOPE_NORM_MODE
   SLOPE_NORM_MEAN = 0,
   SLOPE_NORM_STD = 1
 };
-input ENUM_SLOPE_NORM_MODE InpSlopeNormMode = SLOPE_NORM_STD;
+input ENUM_SLOPE_NORM_MODE InpSlopeNormMode = SLOPE_NORM_MEAN;
 
 // Thresholds separados por modo
 input double InpSlopeThresholdMean = 0.0001; // use com SLOPE_NORM_MEAN
@@ -85,6 +85,7 @@ input bool InpDebug = false;
 // Atualização incremental / redraw
 input bool InpUpdateOnlyOnNewBar = true;
 input bool InpRedrawNow = false;
+input int InpOnCalculateDelaySeconds = 5; // 0 = sem delay
 
 //---------------- BUFFERS -------------------------------------------
 double MarkerBuffer[];    // plot (setas)
@@ -329,6 +330,8 @@ int OnInit()
     return INIT_PARAMETERS_INCORRECT;
   if (InpGapTolerance < 0)
     return INIT_PARAMETERS_INCORRECT;
+  if (InpOnCalculateDelaySeconds < 0)
+    return INIT_PARAMETERS_INCORRECT;
 
   SetIndexBuffer(0, MarkerBuffer, INDICATOR_DATA);
   SetIndexBuffer(1, ScoreBuffer, INDICATOR_CALCULATIONS);
@@ -366,6 +369,19 @@ int OnCalculate(const int rates_total,
                 const int &spread[])
 {
   const double eps = 1.0e-12;
+  static ulong last_exec_ms = 0;
+
+  const int delay_seconds = MathMax(InpOnCalculateDelaySeconds, 0);
+  if (delay_seconds > 0)
+  {
+    const ulong now_ms = GetTickCount64();
+    const ulong delay_ms = (ulong)delay_seconds * 1000ULL;
+    if (last_exec_ms != 0 && (now_ms - last_exec_ms) < delay_ms)
+      return prev_calculated;
+    last_exec_ms = now_ms;
+  }
+  
+  Print("EXECUTOU MAIS UM CALCULO");
 
   if (rates_total < InpWindow)
     return rates_total;
