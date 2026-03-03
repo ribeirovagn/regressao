@@ -55,7 +55,7 @@ input bool InpExtendUntilBreak = true;
 input double InpBreakMarginPoints = 50;
 
 // Visual
-input int InpMaxZonesOnChart = 20;
+input int InpMaxZonesOnChart = 3;
 input bool InpKeepArrows = true;
 input bool InpDrawMidLine = true;
 
@@ -83,8 +83,7 @@ input color InpProjectionLineColor = clrGold; // cor das linhas
 input bool InpDebug = false;
 
 // Atualização incremental / redraw
-input bool InpUpdateOnlyOnNewBar = true;
-input bool InpRedrawNow = false;
+
 input int InpOnCalculateDelaySeconds = 5; // 0 = sem delay
 
 //---------------- BUFFERS -------------------------------------------
@@ -380,7 +379,7 @@ int OnCalculate(const int rates_total,
       return prev_calculated;
     last_exec_ms = now_ms;
   }
-  
+
   Print("EXECUTOU MAIS UM CALCULO");
 
   if (rates_total < InpWindow)
