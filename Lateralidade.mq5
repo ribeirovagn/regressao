@@ -244,6 +244,8 @@ void DrawProjectionFromZone(const ZoneInfo &z)
   if (!InpDrawProjectionLines || !z.valid)
     return;
 
+  DeleteByPrefix("LZ_LVL_");
+
   const double step = (z.top - z.bottom);
   if (step <= 0.0)
     return;
@@ -354,7 +356,7 @@ int OnInit()
   PlotIndexSetInteger(0, PLOT_ARROW_SHIFT, -8);
   PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-  IndicatorSetString(INDICATOR_SHORTNAME, "Lateralidade + Zonas (v2.11)");
+  IndicatorSetString(INDICATOR_SHORTNAME, "Lateralidade + Zonas (v2.12)");
 
   return INIT_SUCCEEDED;
 }
