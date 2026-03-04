@@ -252,21 +252,23 @@ void DrawProjectionFromZone(const ZoneInfo &z)
   const int w = MathMax(1, InpProjectionLineWidth);
   const uchar a = (uchar)ClampInt(InpProjectionLineAlpha, 0, 255);
 
-  const color c = ColorToARGB(InpProjectionLineColor, a);
+  const color cMid = ColorToARGB(InpProjectionLineColor, a);
+  const color cUp = ColorToARGB(clrLimeGreen, a);
+  const color cDn = ColorToARGB(clrDarkOrange, a);
 
   int idx = 0;
 
   if (InpProjectionIncludeZoneLevels)
   {
-    DrawHLine(StringFormat("LZ_LVL_%d_TOP", idx++), z.top, c, w);
-    DrawHLine(StringFormat("LZ_LVL_%d_MID", idx++), z.mid, c, w);
-    DrawHLine(StringFormat("LZ_LVL_%d_BOT", idx++), z.bottom, c, w);
+    DrawHLine(StringFormat("LZ_LVL_%d_TOP", idx++), z.top, cUp, w);
+    DrawHLine(StringFormat("LZ_LVL_%d_MID", idx++), z.mid, cMid, w);
+    DrawHLine(StringFormat("LZ_LVL_%d_BOT", idx++), z.bottom, cDn, w);
   }
 
   for (int k = 1; k <= cnt; ++k)
   {
-    DrawHLine(StringFormat("LZ_LVL_%d_UP_%d", idx++, k), z.top + step * k, c, w);
-    DrawHLine(StringFormat("LZ_LVL_%d_DN_%d", idx++, k), z.bottom - step * k, c, w);
+    DrawHLine(StringFormat("LZ_LVL_%d_UP_%d", idx++, k), z.top + step * k, cUp, w);
+    DrawHLine(StringFormat("LZ_LVL_%d_DN_%d", idx++, k), z.bottom - step * k, cDn, w);
   }
 
   if (InpDebug)
@@ -381,8 +383,6 @@ int OnCalculate(const int rates_total,
       return prev_calculated;
     last_exec_ms = now_ms;
   }
-
-  Print("EXECUTOU MAIS UM CALCULO");
 
   if (rates_total < InpWindow)
     return rates_total;
