@@ -1,62 +1,125 @@
-# Lateralidade.mq5
+# MarketRegime Zones (v2.13)
 
-Indicador de lateralidade para MT5 baseado em regressão linear no `close`, com detecção e renderização de zonas de consolidação.
+Indicador MQL5 para identificar regime de mercado com base em estatística de preço (regressão linear no `close`), detectar zonas de lateralidade, projetar níveis e exibir HUD de leitura rápida.
 
-## Funcionalidades
+## Resumo de funcionalidades
 
 - Detecta lateralidade com regra objetiva: `|slope_norm| < threshold` e `R² < InpR2Threshold`.
-- Suporta dois modos de normalização do slope:
-  - `SLOPE_NORM_MEAN`: `b / mean(y)`
-  - `SLOPE_NORM_STD`: `b * (n-1) / stdev(y)`
-- Calcula score de lateralidade (`0..1`) combinando slope e R² com peso configurável.
-- Agrupa candles laterais em zonas com:
-  - tamanho mínimo (`InpMinZoneBars`)
-  - tolerância de gaps (`InpGapTolerance`)
-- Estende zonas até o rompimento (opcional), classificando estado:
+- Cria zonas por cluster de candles laterais (com tolerância a gaps), com estado:
   - ativa (`Z_ACTIVE`)
   - rompida para cima (`Z_BREAK_UP`)
   - rompida para baixo (`Z_BREAK_DOWN`)
-- Renderiza zonas com:
-  - retângulo preenchido
-  - transparência proporcional à duração da zona
-  - largura da borda proporcional ao score médio
-  - linha média opcional (`mid`)
-- Dois modos de exibição:
-  - apenas última zona ativa + última rompida
-  - múltiplas zonas (limitadas por `InpMaxZonesOnChart`)
-- Projeção de linhas horizontais baseada na zona mais recente (top/mid/bottom + níveis acima/abaixo).
-- Setas opcionais nos candles classificados como laterais.
-- Ao iniciar, apaga todos os objetos existentes no gráfico.
-- Permite limitar a frequência de execução do `OnCalculate` com delay em segundos.
+- Renderiza zonas com transparência por duração e borda por score médio.
+- Opcionalmente estende zona até rompimento e desenha linha média (`mid`).
+- Projeta níveis horizontais a partir da zona mais recente.
+- Mostra HUD de regime/direção/força e, quando disponível, `ZONE ENERGY`.
+- `ZONE ENERGY` é calculada só com estatística de preço (duração, compressão, chop e toques nas bordas).
+
+## Como usar (rápido)
+
+1. Copie `Lateralidade.mq5` para `MQL5/Indicators/` (ou mantenha na sua pasta atual) e compile no MetaEditor.
+2. No MT5, adicione o indicador no gráfico/timeframe desejado.
+3. Ajuste primeiro:
+- `InpWindow`, `InpSlopeNormMode`, `InpSlopeThresholdMean/Std`, `InpR2Threshold`
+4. Ajuste a formação das zonas:
+- `InpMinZoneBars`, `InpGapTolerance`, `InpExtendUntilBreak`, `InpBreakMarginPoints`
+5. Ajuste visual/HUD:
+- parâmetros de transparência, largura de borda, projeções e HUD
+6. Para energia da zona:
+- ative `InpEnableZoneEnergy` e ajuste escalas/pesos conforme ativo e timeframe
 
 ## Parâmetros (`input`)
 
-| Parâmetro | Tipo | Padrão | Resumo |
+### 1) Regressão e regime
+
+| Parâmetro | Tipo | Padrão | Descrição |
 |---|---|---:|---|
-| `InpWindow` | `int` | `180` | Tamanho da janela (candles) usada na regressão linear. |
+| `InpWindow` | `int` | `180` | Janela (barras) da regressão linear. |
 | `InpSlopeNormMode` | `ENUM_SLOPE_NORM_MODE` | `SLOPE_NORM_MEAN` | Modo de normalização do slope (`MEAN` ou `STD`). |
-| `InpSlopeThresholdMean` | `double` | `0.0001` | Limite do slope normalizado no modo `SLOPE_NORM_MEAN`. |
-| `InpSlopeThresholdStd` | `double` | `0.20` | Limite do slope normalizado no modo `SLOPE_NORM_STD`. |
-| `InpR2Threshold` | `double` | `0.20` | Limite máximo de R² para considerar lateralidade. |
-| `InpScoreSlopeWeight` | `double` | `0.65` | Peso do slope no score (0..1). O peso de R² é `1 - InpScoreSlopeWeight`. |
-| `InpMinZoneBars` | `int` | `20` | Número mínimo de candles para validar uma zona. |
-| `InpGapTolerance` | `int` | `5` | Quantidade máxima de candles não laterais permitida dentro do cluster. |
-| `InpExtendUntilBreak` | `bool` | `true` | Se ativo, estende a zona até detectar rompimento. |
-| `InpBreakMarginPoints` | `double` | `50` | Margem (em pontos) para confirmar rompimento acima/abaixo da zona. |
-| `InpMaxZonesOnChart` | `int` | `3` | Máximo de zonas desenhadas no modo de múltiplas zonas. |
-| `InpKeepArrows` | `bool` | `true` | Exibe setas nos candles laterais. |
-| `InpDrawMidLine` | `bool` | `true` | Desenha a linha média da zona. |
-| `InpAlphaMin` | `int` | `35` | Alpha mínimo (0..255) para preenchimento das zonas. |
-| `InpAlphaMax` | `int` | `90` | Alpha máximo (0..255) para preenchimento das zonas. |
-| `InpAlphaLenScale` | `int` | `120` | Escala de duração para interpolação de transparência. |
-| `InpBorderMinWidth` | `int` | `1` | Espessura mínima da borda da zona. |
-| `InpBorderMaxWidth` | `int` | `4` | Espessura máxima da borda da zona. |
-| `InpOnlyLastActiveAndLastBroken` | `bool` | `true` | Mostra apenas a última zona ativa e a última rompida. |
-| `InpDrawProjectionLines` | `bool` | `true` | Habilita linhas de projeção horizontais da zona mais recente. |
-| `InpProjectionCount` | `int` | `5` | Número de níveis acima e abaixo da zona. |
-| `InpProjectionIncludeZoneLevels` | `bool` | `true` | Inclui níveis base da zona (`top`, `mid`, `bottom`). |
+| `InpSlopeThresholdMean` | `double` | `0.0001` | Threshold de slope no modo `MEAN`. |
+| `InpSlopeThresholdStd` | `double` | `0.20` | Threshold de slope no modo `STD`. |
+| `InpR2Threshold` | `double` | `0.20` | R² máximo para classificar lateralidade. |
+| `InpScoreSlopeWeight` | `double` | `0.65` | Peso do slope no score (peso de R² = `1 - peso`). |
+
+### 2) Zonas
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|---|---|---:|---|
+| `InpMinZoneBars` | `int` | `20` | Mínimo de barras para validar zona. |
+| `InpGapTolerance` | `int` | `5` | Máximo de barras não laterais dentro do cluster. |
+| `InpExtendUntilBreak` | `bool` | `true` | Estende zona até rompimento. |
+| `InpBreakMarginPoints` | `double` | `50` | Margem (pontos) para confirmar rompimento. |
+| `InpMaxZonesOnChart` | `int` | `3` | Máximo de zonas no modo múltiplo. |
+| `InpOnlyLastActiveAndLastBroken` | `bool` | `true` | Mostra só última ativa + última rompida. |
+
+### 3) Visual da zona e setas
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|---|---|---:|---|
+| `InpKeepArrows` | `bool` | `true` | Mostra setas nos candles laterais. |
+| `InpDrawMidLine` | `bool` | `true` | Desenha linha média da zona. |
+| `InpAlphaMin` | `int` | `35` | Alpha mínimo da zona (`0..255`). |
+| `InpAlphaMax` | `int` | `90` | Alpha máximo da zona (`0..255`). |
+| `InpAlphaLenScale` | `int` | `120` | Escala de duração para interpolação de alpha. |
+| `InpBorderMinWidth` | `int` | `1` | Largura mínima da borda da zona. |
+| `InpBorderMaxWidth` | `int` | `4` | Largura máxima da borda da zona. |
+
+### 4) Projeções horizontais
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|---|---|---:|---|
+| `InpDrawProjectionLines` | `bool` | `true` | Ativa linhas de projeção. |
+| `InpProjectionCount` | `int` | `5` | Níveis acima e abaixo da zona. |
+| `InpProjectionIncludeZoneLevels` | `bool` | `true` | Inclui `top/mid/bottom` da zona. |
 | `InpProjectionLineWidth` | `int` | `1` | Espessura das linhas de projeção. |
-| `InpProjectionLineAlpha` | `int` | `160` | Transparência (0..255) das linhas de projeção. |
-| `InpProjectionLineColor` | `color` | `clrGold` | Cor das linhas de projeção. |
-| `InpDebug` | `bool` | `false` | Ativa logs de debug no Journal. |
-| `InpOnCalculateDelaySeconds` | `int` | `5` | Delay mínimo (em segundos) entre execuções do `OnCalculate` (`0` desativa). |
+| `InpProjectionLineAlpha` | `int` | `160` | Alpha das linhas de projeção (`0..255`). |
+| `InpProjectionLineColor` | `color` | `clrGold` | Cor das projeções. |
+
+### 5) HUD (Trend HUD)
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|---|---|---:|---|
+| `InpEnableTrendHUD` | `bool` | `true` | Habilita HUD. |
+| `InpShowTrendDetails` | `bool` | `false` | Mostra linha com `R2/ER/S`. |
+| `InpHUDDraggable` | `bool` | `true` | Permite arrastar HUD no gráfico. |
+| `InpHUDXDefault` | `int` | `12` | Offset X padrão do HUD. |
+| `InpHUDYDefault` | `int` | `12` | Offset Y padrão do HUD. |
+| `InpHUDFontSize` | `int` | `10` | Tamanho da fonte do HUD. |
+| `InpHUDWidth` | `int` | `240` | Largura mínima do painel HUD. |
+| `InpHUDHeight` | `int` | `86` | Altura mínima do painel HUD. |
+| `InpHUDAlphaMin` | `int` | `170` | Alpha mínimo do HUD (`0..255`). |
+| `InpHUDAlphaMax` | `int` | `255` | Alpha máximo do HUD (`0..255`). |
+| `InpBarHeight` | `int` | `10` | Altura da barra de força no rodapé do HUD. |
+| `InpBarMarginX` | `int` | `10` | Margem X da barra (reservado/compat). |
+| `InpBarMarginBottom` | `int` | `10` | Margem inferior da barra (reservado/compat). |
+| `InpTrendThreshold` | `double` | `0.60` | Limiar para classificar regime como TREND. |
+| `InpTrendWeightSlope` | `double` | `0.40` | Peso do slope no `trend_strength`. |
+| `InpTrendWeightR2` | `double` | `0.40` | Peso do R² no `trend_strength`. |
+| `InpTrendWeightER` | `double` | `0.20` | Peso do ER no `trend_strength`. |
+
+### 6) Zone Energy
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|---|---|---:|---|
+| `InpEnableZoneEnergy` | `bool` | `true` | Habilita cálculo e exibição de `ZONE ENERGY`. |
+| `InpZoneEnergyLenScale` | `int` | `120` | Escala de duração para componente `EnergyLen`. |
+| `InpZoneEnergyTouchMarginPoints` | `int` | `30` | Margem (pontos) para contar toques no topo/fundo. |
+| `InpZoneEnergyTouchScale` | `int` | `12` | Escala de normalização dos toques. |
+| `InpZoneEnergyWeightLen` | `double` | `0.30` | Peso da duração. |
+| `InpZoneEnergyWeightComp` | `double` | `0.35` | Peso da compressão. |
+| `InpZoneEnergyWeightChop` | `double` | `0.20` | Peso do chop (1-ER da zona). |
+| `InpZoneEnergyWeightTouch` | `double` | `0.15` | Peso dos toques nas bordas. |
+
+> Observação: os pesos de energia são normalizados automaticamente se a soma for diferente de `1`.
+
+### 7) Execução e debug
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|---|---|---:|---|
+| `InpDebug` | `bool` | `false` | Liga logs de debug no Journal. |
+| `InpOnCalculateDelaySeconds` | `int` | `5` | Delay mínimo entre execuções do `OnCalculate` (`0` desativa). |
+
+## Notas
+
+- O indicador usa abordagem estatística de preço; não depende de indicadores financeiros clássicos.
+- Em `OnInit`, o código remove objetos do gráfico atual (`ObjectsDeleteAll`).
