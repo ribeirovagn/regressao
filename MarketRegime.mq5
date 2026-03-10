@@ -1,12 +1,12 @@
 ﻿//+------------------------------------------------------------------+
 //|                          MarketRegime.mq5 (v2.13)           |
-//|   MarketRegime (LR Close) + Zonas (clusters)                      |
-//|   - Cor por rompimento: ativo=azul, up=verde, down=vermelho       |
-//|   - Linha média da zona (mid)                                     |
-//|   - Força: borda mais grossa por score médio                      |
-//|   - Transparência proporcional à duração                          |
-//|   - Modo "zona ativa": mantém só a última ativa e a última rompida|
-//|   - Linhas horizontais (projeção) baseadas na zona mais recente   |
+//|   MarketRegime (LR Close) + Zones (clusters)                      |
+//|   - Breakout color: active=blue, up=green, down=red               |
+//|   - Zone midline (mid)                                             |
+//|   - Strength: thicker border by average score                      |
+//|   - Transparency proportional to duration                          |
+//|   - "Active zone" mode: keeps only the last active and last broken |
+//|   - Horizontal lines (projection) based on the most recent zone    |
 //+------------------------------------------------------------------+
 #property copyright "Vagner Ribeiro"
 #property link "https://www.mql5.com"
@@ -26,7 +26,7 @@
 // LR window
 input int InpWindow = 180;
 
-// Normalização do slope:
+// Slope normalization:
 // 0 = b/mean(y)
 // 1 = b*(n-1)/stdev(y)
 enum ENUM_SLOPE_NORM_MODE
@@ -36,21 +36,21 @@ enum ENUM_SLOPE_NORM_MODE
 };
 input ENUM_SLOPE_NORM_MODE InpSlopeNormMode = SLOPE_NORM_MEAN;
 
-// Thresholds separados por modo
-input double InpSlopeThresholdMean = 0.0001; // use com SLOPE_NORM_MEAN
-input double InpSlopeThresholdStd = 0.20;    // use com SLOPE_NORM_STD
+// Separate thresholds by mode
+input double InpSlopeThresholdMean = 0.0001; // use with SLOPE_NORM_MEAN
+input double InpSlopeThresholdStd = 0.20;    // use with SLOPE_NORM_STD
 
-// Tendência (R²)
+// Trend (R²)
 input double InpR2Threshold = 0.20;
 
-// Score (informativo)
-input double InpScoreSlopeWeight = 0.65; // peso do slope no score 0..1
+// Score (informational)
+input double InpScoreSlopeWeight = 0.65; // slope weight in score 0..1
 
-// Zonas (clusters)
+// Zones (clusters)
 input int InpMinZoneBars = 20;
 input int InpGapTolerance = 5;
 
-// Extensão por rompimento
+// Breakout extension
 input bool InpExtendUntilBreak = true;
 input double InpBreakMarginPoints = 50;
 
@@ -59,27 +59,27 @@ input int InpMaxZonesOnChart = 3;
 input bool InpKeepArrows = true;
 input bool InpDrawMidLine = true;
 
-// Transparência por duração (len)
-input int InpAlphaMin = 35;       // 0..255 (mais baixo = mais transparente)
-input int InpAlphaMax = 90;       // 0..255 (mais alto = mais sólido)
-input int InpAlphaLenScale = 120; // len >= scale tende a usar AlphaMax
+// Duration-based transparency (len)
+input int InpAlphaMin = 35;       // 0..255 (lower = more transparent)
+input int InpAlphaMax = 90;       // 0..255 (higher = more solid)
+input int InpAlphaLenScale = 120; // len >= scale tends to use AlphaMax
 
-// Força (largura da borda por score médio)
+// Strength (border width by average score)
 input int InpBorderMinWidth = 1;
 input int InpBorderMaxWidth = 4;
 
-// Modo "zona ativa": manter só a última zona ativa + última rompida
+// "Active zone" mode: keep only the last active zone + last broken
 input bool InpOnlyLastActiveAndLastBroken = true;
 
-// --- PROJEÇÃO DE LINHAS HORIZONTAIS (zona mais recente) ------------
+// --- HORIZONTAL LINE PROJECTION (most recent zone) ------------------
 input bool InpDrawProjectionLines = true;
-input int InpProjectionCount = 5;                 // N linhas acima e N abaixo
-input bool InpProjectionIncludeZoneLevels = true; // desenha top/mid/bottom também
+input int InpProjectionCount = 5;                 // N lines above and N below
+input bool InpProjectionIncludeZoneLevels = true; // also draws top/mid/bottom
 input int InpProjectionLineWidth = 1;
 input int InpProjectionLineAlpha = 160;       // 0..255
-input color InpProjectionLineColor = clrGold; // cor das linhas
+input color InpProjectionLineColor = clrGold; // line color
 
-// --- TREND HUD (força da tendência) --------------------------------
+// --- TREND HUD (trend strength) -------------------------------------
 input bool InpEnableTrendHUD = true;
 input bool InpShowTrendDetails = false;
 input bool InpHUDDraggable = true;
@@ -98,7 +98,7 @@ input double InpTrendWeightSlope = 0.40;
 input double InpTrendWeightR2 = 0.40;
 input double InpTrendWeightER = 0.20;
 
-// --- ZONE ENERGY (estatística de preço, sem indicadores financeiros) -
+// --- ZONE ENERGY (price statistics, no financial indicators) ---------
 input bool InpEnableZoneEnergy = true;
 input int InpZoneEnergyLenScale = 120;
 input int InpZoneEnergyTouchMarginPoints = 30;
@@ -111,14 +111,14 @@ input double InpZoneEnergyWeightTouch = 0.15;
 // Debug
 input bool InpDebug = false;
 
-// Atualização incremental / redraw
+// Incremental update / redraw
 
-input int InpOnCalculateDelaySeconds = 5; // 0 = sem delay
+input int InpOnCalculateDelaySeconds = 5; // 0 = no delay
 
 //---------------- BUFFERS -------------------------------------------
-double MarkerBuffer[];    // plot (setas)
+double MarkerBuffer[];    // plot (arrows)
 double ScoreBuffer[];     // calc
-double FlagBuffer[];      // calc (0/1) => usado para zonas
+double FlagBuffer[];      // calc (0/1) => used for zones
 double SlopeNormBuffer[]; // calc
 double R2Buffer[];        // calc
 double DummyBuffer[];     // calc
@@ -141,8 +141,8 @@ enum ENUM_REGIME_STATE
 struct ZoneInfo
 {
   bool valid;
-  datetime t_left;  // mais antigo (esquerda)
-  datetime t_right; // mais recente (direita; pode estender até rompimento)
+  datetime t_left;  // oldest (left)
+  datetime t_right; // most recent (right; can extend until breakout)
   double top;
   double bottom;
   double mid;
@@ -189,7 +189,7 @@ int HUDPanelHeight()
   const int GAP_TEXT_BAR = 8;
   const int PAD_BOTTOM = 10;
   const int BAR_H = MathMax(2, InpBarHeight);
-  const int lines = 5 + (InpShowTrendDetails ? 1 : 0); // estimativa (título+3 base+energy opcional)
+  const int lines = 5 + (InpShowTrendDetails ? 1 : 0); // estimate (title+3 base+optional energy)
   const int textBlockH = PAD_TOP + lines * LINE_H;
   const int barBlockH = GAP_TEXT_BAR + BAR_H + PAD_BOTTOM;
   return MathMax(MathMax(0, InpHUDHeight), textBlockH + barBlockH);
@@ -378,7 +378,7 @@ color ZoneBaseColor(const ENUM_ZONE_STATE st)
     return clrLimeGreen;
   if (st == Z_BREAK_DOWN)
     return clrTomato;
-  return clrDodgerBlue; // ativo
+  return clrDodgerBlue; // active
 }
 
 //+------------------------------------------------------------------+
@@ -547,7 +547,7 @@ void EnsureHUDObjectsCreated()
   if (ObjectFind(0, "LZ_HUD_BAR_FILL") < 0)
     ObjectCreate(0, "LZ_HUD_BAR_FILL", OBJ_RECTANGLE_LABEL, 0, 0, 0);
 
-  // limpeza de objetos legados de texto/barra antiga para evitar placeholders.
+  // Cleanup of legacy old text/bar objects to avoid placeholders.
   ObjectDelete(0, "LZ_HUD_TXT");
   ObjectDelete(0, "LZ_HUD_TITLE");
   ObjectDelete(0, "LZ_HUD_LINE1");
@@ -590,7 +590,7 @@ void DeleteTrendHUD()
   for (int i = 0; i < 20; ++i)
     ObjectDelete(0, HUDLineName(i));
 
-  // limpeza defensiva de nomes legados.
+  // Defensive cleanup of legacy names.
   ObjectDelete(0, "LZ_HUD_TXT");
   ObjectDelete(0, "LZ_HUD_TITLE");
   ObjectDelete(0, "LZ_HUD_LINE1");
@@ -726,7 +726,7 @@ void RenderTrendHUD(const ENUM_REGIME_STATE regime,
       ObjectDelete(0, name);
   }
 
-  // limpeza defensiva de nomes antigos para impedir "Label/label" órfãos.
+  // Defensive cleanup of old names to prevent orphan "Label/label".
   ObjectDelete(0, "LZ_HUD_TXT");
   ObjectDelete(0, "LZ_HUD_TITLE");
   ObjectDelete(0, "LZ_HUD_LINE1");
@@ -920,7 +920,7 @@ int OnCalculate(const int rates_total,
   if (last_valid < 0)
     return rates_total;
 
-  // limpar região sem janela completa
+  // Clear region without full window
   for (int i = rates_total - 1; i > last_valid; --i)
   {
     MarkerBuffer[i] = EMPTY_VALUE;
@@ -930,7 +930,7 @@ int OnCalculate(const int rates_total,
     R2Buffer[i] = EMPTY_VALUE;
   }
 
-  // pré-somas de x=0..n-1
+  // Pre-sums of x=0..n-1
   const double sum_x = n * (n - 1.0) * 0.5;
   const double sum_x2 = n * (n - 1.0) * (2.0 * n - 1.0) / 6.0;
   const double denom = n * sum_x2 - sum_x * sum_x;
@@ -941,7 +941,7 @@ int OnCalculate(const int rates_total,
   const double wSlope = Clamp01(InpScoreSlopeWeight);
   const double wR2 = 1.0 - wSlope;
 
-  // 1) calcular LR + R2 + score + flag
+  // 1) Compute LR + R2 + score + flag
   for (int i = last_valid; i >= 0; --i)
   {
     double sum_y = 0.0;
@@ -995,17 +995,17 @@ int OnCalculate(const int rates_total,
     SlopeNormBuffer[i] = b_norm;
     R2Buffer[i] = r2;
 
-    // Regra dura de lateralidade
+    // Hard ranging rule
     const bool lateral = (MathAbs(b_norm) < slope_th && r2 < InpR2Threshold);
     FlagBuffer[i] = lateral ? 1.0 : 0.0;
 
-    // Score informativo (0..1)
+    // Informational score (0..1)
     const double s1 = 1.0 - MathMin(1.0, MathAbs(b_norm) / slope_th);
     const double s2 = 1.0 - MathMin(1.0, r2 / InpR2Threshold);
     const double score = Clamp01(wSlope * s1 + wR2 * s2);
     ScoreBuffer[i] = score;
 
-    // Setas
+    // Arrows
     if (InpKeepArrows && lateral)
     {
       double offset = (high[i] - low[i]) * 0.25;
@@ -1019,11 +1019,11 @@ int OnCalculate(const int rates_total,
     }
   }
 
-  // 2) zonas (MAIS RECENTES -> MAIS ANTIGAS)
+  // 2) Zones (MOST RECENT -> OLDEST)
   DeleteByPrefix("LZ_RECT_");
   DeleteByPrefix("LZ_MID_");
-  // (linhas de projeção serão desenhadas depois, com base na zona mais recente)
-  // não apagamos aqui para evitar flicker desnecessário; DrawProjectionFromZone apaga com prefixo.
+  // (projection lines will be drawn later, based on the most recent zone)
+  // we do not clear here to avoid unnecessary flicker; DrawProjectionFromZone clears by prefix.
 
   ZoneInfo lastActive;
   lastActive.valid = false;
@@ -1034,12 +1034,12 @@ int OnCalculate(const int rates_total,
   int zoneCount = 0;
   const double touchMargin = MathMax(0, InpZoneEnergyTouchMarginPoints) * _Point;
 
-  int i = 0; // mais recente -> mais antigo
+  int i = 0; // most recent -> oldest
   while (i <= last_valid)
   {
     if (FlagBuffer[i] == 1.0)
     {
-      int start_recent = i; // mais recente
+      int start_recent = i; // most recent
       int gap = 0;
 
       while (i <= last_valid)
@@ -1054,7 +1054,7 @@ int OnCalculate(const int rates_total,
         i++;
       }
 
-      int end_old = i - gap; // mais antigo
+      int end_old = i - gap; // oldest
       int length = end_old - start_recent + 1;
 
       if (length >= InpMinZoneBars)
@@ -1107,11 +1107,11 @@ int OnCalculate(const int rates_total,
         z.touchTop = touchTop;
         z.touchBot = touchBot;
 
-        // esquerda=mais antigo; direita=mais recente
+        // left=oldest; right=most recent
         z.t_left = time[end_old];
         z.t_right = time[start_recent];
 
-        // estado/rompimento e extensão (para a direita: índices menores)
+        // state/breakout and extension (to the right: lower indexes)
         z.state = Z_ACTIVE;
 
         if (InpExtendUntilBreak)
@@ -1135,7 +1135,7 @@ int OnCalculate(const int rates_total,
           }
         }
 
-        // Modo "só última ativa + última rompida" (mais recentes)
+        // "Only last active + last broken" mode (most recent)
         if (InpOnlyLastActiveAndLastBroken)
         {
           if (!lastActive.valid && z.state == Z_ACTIVE)
@@ -1168,7 +1168,7 @@ int OnCalculate(const int rates_total,
     }
   }
 
-  // Render final no modo ativo + PROJEÇÃO DE LINHAS DA ZONA MAIS RECENTE
+  // Final render in active mode + PROJECTION LINES FROM THE MOST RECENT ZONE
   if (InpOnlyLastActiveAndLastBroken)
   {
     int idx = 0;
@@ -1177,26 +1177,26 @@ int OnCalculate(const int rates_total,
     if (lastBroken.valid)
       DrawZone(idx++, lastBroken);
 
-    // zona "mais útil" para projeção: prioriza ativa, senão rompida
+    // Most "useful" zone for projection: prioritize active, otherwise broken
     if (lastActive.valid)
       DrawProjectionFromZone(lastActive);
     else if (lastBroken.valid)
       DrawProjectionFromZone(lastBroken);
     else
     {
-      // se não há zona, remove linhas antigas
+      // If there is no zone, remove old lines
       DeleteByPrefix("LZ_LVL_");
     }
   }
   else
   {
-    // Se estiver desenhando várias zonas, usamos a MAIS RECENTE detectada:
-    // como o loop é do recente->antigo, a primeira zona desenhada é a mais recente.
-    // Para simplificar: aqui removemos linhas (ou você pode implementar armazenando a primeira zona).
+    // If drawing multiple zones, we use the MOST RECENT detected:
+    // since the loop is recent->old, the first drawn zone is the most recent.
+    // For simplicity: here we remove lines (or you can implement storing the first zone).
     DeleteByPrefix("LZ_LVL_");
   }
 
-  // 2.1) Zone Energy (somente estatística de preço) - O(1) após identificar lastActive
+  // 2.1) Zone Energy (price stats only) - O(1) after identifying lastActive
   bool hasZoneEnergy = false;
   double zone_energy01 = 0.0;
   int zone_energy_pct = 0;
@@ -1238,7 +1238,7 @@ int OnCalculate(const int rates_total,
   }
 
   // 3) TrendStrength + HUD
-  ObjectDelete(0, "LZ_TREND_BG"); // legado: remove fundo antigo se existir
+  ObjectDelete(0, "LZ_TREND_BG"); // legacy: remove old background if it exists
 
   const double b_norm0 = SlopeNormBuffer[0];
   const double r2_0 = Clamp01(R2Buffer[0]);

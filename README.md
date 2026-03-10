@@ -1,125 +1,132 @@
 # MarketRegime Zones (v2.13)
 
-Indicador MQL5 para identificar regime de mercado com base em estatística de preço (regressão linear no `close`), detectar zonas de lateralidade, projetar níveis e exibir HUD de leitura rápida.
+MQL5 indicator to identify market regime based on price statistics (linear regression on `close`), detect ranging zones, project levels, and display a quick-read HUD.
 
-## Resumo de funcionalidades
+## Feature Summary
 
-- Detecta lateralidade com regra objetiva: `|slope_norm| < threshold` e `R² < InpR2Threshold`.
-- Cria zonas por cluster de candles laterais (com tolerância a gaps), com estado:
-  - ativa (`Z_ACTIVE`)
-  - rompida para cima (`Z_BREAK_UP`)
-  - rompida para baixo (`Z_BREAK_DOWN`)
-- Renderiza zonas com transparência por duração e borda por score médio.
-- Opcionalmente estende zona até rompimento e desenha linha média (`mid`).
-- Projeta níveis horizontais a partir da zona mais recente.
-- Mostra HUD de regime/direção/força e, quando disponível, `ZONE ENERGY`.
-- `ZONE ENERGY` é calculada só com estatística de preço (duração, compressão, chop e toques nas bordas).
+- Detects ranging using an objective rule: `|slope_norm| < threshold` and `R² < InpR2Threshold`.
+- Builds zones from clusters of ranging candles (with gap tolerance), with state:
+  - active (`Z_ACTIVE`)
+  - broken upward (`Z_BREAK_UP`)
+  - broken downward (`Z_BREAK_DOWN`)
+- Renders zones with duration-based transparency and border width by average score.
+- Optionally extends the zone until breakout and draws the midline (`mid`).
+- Projects horizontal levels from the most recent zone.
+- Shows a regime/direction/strength HUD and, when available, `ZONE ENERGY`.
+- `ZONE ENERGY` is calculated only from price statistics (duration, compression, chop, and edge touches).
 
-## Como usar (rápido)
+## Quick Start
 
-1. Copie `Lateralidade.mq5` para `MQL5/Indicators/` (ou mantenha na sua pasta atual) e compile no MetaEditor.
-2. No MT5, adicione o indicador no gráfico/timeframe desejado.
-3. Ajuste primeiro:
+1. Copy `MarketRegime.mq5` to `MQL5/Indicators/` (or keep it in your current folder) and compile in MetaEditor.
+2. In MT5, add the indicator to the desired chart/timeframe.
+3. Tune first:
+
 - `InpWindow`, `InpSlopeNormMode`, `InpSlopeThresholdMean/Std`, `InpR2Threshold`
-4. Ajuste a formação das zonas:
+
+4. Tune zone formation:
+
 - `InpMinZoneBars`, `InpGapTolerance`, `InpExtendUntilBreak`, `InpBreakMarginPoints`
-5. Ajuste visual/HUD:
-- parâmetros de transparência, largura de borda, projeções e HUD
-6. Para energia da zona:
-- ative `InpEnableZoneEnergy` e ajuste escalas/pesos conforme ativo e timeframe
 
-## Parâmetros (`input`)
+5. Tune visuals/HUD:
 
-### 1) Regressão e regime
+- transparency parameters, border width, projections, and HUD
 
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---|---:|---|
-| `InpWindow` | `int` | `180` | Janela (barras) da regressão linear. |
-| `InpSlopeNormMode` | `ENUM_SLOPE_NORM_MODE` | `SLOPE_NORM_MEAN` | Modo de normalização do slope (`MEAN` ou `STD`). |
-| `InpSlopeThresholdMean` | `double` | `0.0001` | Threshold de slope no modo `MEAN`. |
-| `InpSlopeThresholdStd` | `double` | `0.20` | Threshold de slope no modo `STD`. |
-| `InpR2Threshold` | `double` | `0.20` | R² máximo para classificar lateralidade. |
-| `InpScoreSlopeWeight` | `double` | `0.65` | Peso do slope no score (peso de R² = `1 - peso`). |
+6. For zone energy:
 
-### 2) Zonas
+- enable `InpEnableZoneEnergy` and adjust scales/weights for your instrument and timeframe
 
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---|---:|---|
-| `InpMinZoneBars` | `int` | `20` | Mínimo de barras para validar zona. |
-| `InpGapTolerance` | `int` | `5` | Máximo de barras não laterais dentro do cluster. |
-| `InpExtendUntilBreak` | `bool` | `true` | Estende zona até rompimento. |
-| `InpBreakMarginPoints` | `double` | `50` | Margem (pontos) para confirmar rompimento. |
-| `InpMaxZonesOnChart` | `int` | `3` | Máximo de zonas no modo múltiplo. |
-| `InpOnlyLastActiveAndLastBroken` | `bool` | `true` | Mostra só última ativa + última rompida. |
+## Parameters (`input`)
 
-### 3) Visual da zona e setas
+### 1) Regression and Regime
 
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---|---:|---|
-| `InpKeepArrows` | `bool` | `true` | Mostra setas nos candles laterais. |
-| `InpDrawMidLine` | `bool` | `true` | Desenha linha média da zona. |
-| `InpAlphaMin` | `int` | `35` | Alpha mínimo da zona (`0..255`). |
-| `InpAlphaMax` | `int` | `90` | Alpha máximo da zona (`0..255`). |
-| `InpAlphaLenScale` | `int` | `120` | Escala de duração para interpolação de alpha. |
-| `InpBorderMinWidth` | `int` | `1` | Largura mínima da borda da zona. |
-| `InpBorderMaxWidth` | `int` | `4` | Largura máxima da borda da zona. |
+| Parameter               | Type                   |           Default | Description                                          |
+| ----------------------- | ---------------------- | ----------------: | ---------------------------------------------------- |
+| `InpWindow`             | `int`                  |             `180` | Linear regression window (bars).                     |
+| `InpSlopeNormMode`      | `ENUM_SLOPE_NORM_MODE` | `SLOPE_NORM_MEAN` | Slope normalization mode (`MEAN` or `STD`).          |
+| `InpSlopeThresholdMean` | `double`               |          `0.0001` | Slope threshold in `MEAN` mode.                      |
+| `InpSlopeThresholdStd`  | `double`               |            `0.20` | Slope threshold in `STD` mode.                       |
+| `InpR2Threshold`        | `double`               |            `0.20` | Maximum R² to classify as ranging.                   |
+| `InpScoreSlopeWeight`   | `double`               |            `0.65` | Slope weight in score (R² weight = `1 - weight`).    |
 
-### 4) Projeções horizontais
+### 2) Zones
 
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---|---:|---|
-| `InpDrawProjectionLines` | `bool` | `true` | Ativa linhas de projeção. |
-| `InpProjectionCount` | `int` | `5` | Níveis acima e abaixo da zona. |
-| `InpProjectionIncludeZoneLevels` | `bool` | `true` | Inclui `top/mid/bottom` da zona. |
-| `InpProjectionLineWidth` | `int` | `1` | Espessura das linhas de projeção. |
-| `InpProjectionLineAlpha` | `int` | `160` | Alpha das linhas de projeção (`0..255`). |
-| `InpProjectionLineColor` | `color` | `clrGold` | Cor das projeções. |
+| Parameter                        | Type     | Default | Description                                         |
+| -------------------------------- | -------- | ------: | --------------------------------------------------- |
+| `InpMinZoneBars`                 | `int`    |    `20` | Minimum bars required to validate a zone.           |
+| `InpGapTolerance`                | `int`    |     `5` | Maximum non-ranging bars inside a cluster.          |
+| `InpExtendUntilBreak`            | `bool`   |  `true` | Extends the zone until breakout.                    |
+| `InpBreakMarginPoints`           | `double` |    `50` | Margin (points) to confirm breakout.                |
+| `InpMaxZonesOnChart`             | `int`    |     `3` | Maximum number of zones in multi-zone mode.         |
+| `InpOnlyLastActiveAndLastBroken` | `bool`   |  `true` | Shows only last active zone + last broken zone.     |
+
+### 3) Zone Visuals and Arrows
+
+| Parameter           | Type   | Default | Description                                   |
+| ------------------- | ------ | ------: | --------------------------------------------- |
+| `InpKeepArrows`     | `bool` |  `true` | Shows arrows on ranging candles.              |
+| `InpDrawMidLine`    | `bool` |  `true` | Draws the zone midline.                       |
+| `InpAlphaMin`       | `int`  |    `35` | Minimum zone alpha (`0..255`).                |
+| `InpAlphaMax`       | `int`  |    `90` | Maximum zone alpha (`0..255`).                |
+| `InpAlphaLenScale`  | `int`  |   `120` | Duration scale for alpha interpolation.       |
+| `InpBorderMinWidth` | `int`  |     `1` | Minimum zone border width.                    |
+| `InpBorderMaxWidth` | `int`  |     `4` | Maximum zone border width.                    |
+
+### 4) Horizontal Projections
+
+| Parameter                        | Type    |   Default | Description                                |
+| -------------------------------- | ------- | --------: | ------------------------------------------ |
+| `InpDrawProjectionLines`         | `bool`  |    `true` | Enables projection lines.                  |
+| `InpProjectionCount`             | `int`   |       `5` | Levels above and below the zone.           |
+| `InpProjectionIncludeZoneLevels` | `bool`  |    `true` | Includes zone `top/mid/bottom`.            |
+| `InpProjectionLineWidth`         | `int`   |       `1` | Projection line thickness.                 |
+| `InpProjectionLineAlpha`         | `int`   |     `160` | Projection line alpha (`0..255`).          |
+| `InpProjectionLineColor`         | `color` | `clrGold` | Projection line color.                     |
 
 ### 5) HUD (Trend HUD)
 
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---|---:|---|
-| `InpEnableTrendHUD` | `bool` | `true` | Habilita HUD. |
-| `InpShowTrendDetails` | `bool` | `false` | Mostra linha com `R2/ER/S`. |
-| `InpHUDDraggable` | `bool` | `true` | Permite arrastar HUD no gráfico. |
-| `InpHUDXDefault` | `int` | `12` | Offset X padrão do HUD. |
-| `InpHUDYDefault` | `int` | `12` | Offset Y padrão do HUD. |
-| `InpHUDFontSize` | `int` | `10` | Tamanho da fonte do HUD. |
-| `InpHUDWidth` | `int` | `240` | Largura mínima do painel HUD. |
-| `InpHUDHeight` | `int` | `86` | Altura mínima do painel HUD. |
-| `InpHUDAlphaMin` | `int` | `170` | Alpha mínimo do HUD (`0..255`). |
-| `InpHUDAlphaMax` | `int` | `255` | Alpha máximo do HUD (`0..255`). |
-| `InpBarHeight` | `int` | `10` | Altura da barra de força no rodapé do HUD. |
-| `InpBarMarginX` | `int` | `10` | Margem X da barra (reservado/compat). |
-| `InpBarMarginBottom` | `int` | `10` | Margem inferior da barra (reservado/compat). |
-| `InpTrendThreshold` | `double` | `0.60` | Limiar para classificar regime como TREND. |
-| `InpTrendWeightSlope` | `double` | `0.40` | Peso do slope no `trend_strength`. |
-| `InpTrendWeightR2` | `double` | `0.40` | Peso do R² no `trend_strength`. |
-| `InpTrendWeightER` | `double` | `0.20` | Peso do ER no `trend_strength`. |
+| Parameter             | Type     | Default | Description                                  |
+| --------------------- | -------- | ------: | -------------------------------------------- |
+| `InpEnableTrendHUD`   | `bool`   |  `true` | Enables HUD.                                 |
+| `InpShowTrendDetails` | `bool`   | `false` | Shows an extra line with `R2/ER/S`.          |
+| `InpHUDDraggable`     | `bool`   |  `true` | Allows dragging the HUD on chart.            |
+| `InpHUDXDefault`      | `int`    |    `12` | Default HUD X offset.                        |
+| `InpHUDYDefault`      | `int`    |    `12` | Default HUD Y offset.                        |
+| `InpHUDFontSize`      | `int`    |    `10` | HUD font size.                               |
+| `InpHUDWidth`         | `int`    |   `240` | Minimum HUD panel width.                     |
+| `InpHUDHeight`        | `int`    |    `86` | Minimum HUD panel height.                    |
+| `InpHUDAlphaMin`      | `int`    |   `170` | Minimum HUD alpha (`0..255`).                |
+| `InpHUDAlphaMax`      | `int`    |   `255` | Maximum HUD alpha (`0..255`).                |
+| `InpBarHeight`        | `int`    |    `10` | Strength bar height at HUD footer.           |
+| `InpBarMarginX`       | `int`    |    `10` | Bar X margin (reserved/compat).              |
+| `InpBarMarginBottom`  | `int`    |    `10` | Bar bottom margin (reserved/compat).         |
+| `InpTrendThreshold`   | `double` |  `0.60` | Threshold to classify regime as TREND.       |
+| `InpTrendWeightSlope` | `double` |  `0.40` | Slope weight in `trend_strength`.            |
+| `InpTrendWeightR2`    | `double` |  `0.40` | R² weight in `trend_strength`.               |
+| `InpTrendWeightER`    | `double` |  `0.20` | ER weight in `trend_strength`.               |
 
 ### 6) Zone Energy
 
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---|---:|---|
-| `InpEnableZoneEnergy` | `bool` | `true` | Habilita cálculo e exibição de `ZONE ENERGY`. |
-| `InpZoneEnergyLenScale` | `int` | `120` | Escala de duração para componente `EnergyLen`. |
-| `InpZoneEnergyTouchMarginPoints` | `int` | `30` | Margem (pontos) para contar toques no topo/fundo. |
-| `InpZoneEnergyTouchScale` | `int` | `12` | Escala de normalização dos toques. |
-| `InpZoneEnergyWeightLen` | `double` | `0.30` | Peso da duração. |
-| `InpZoneEnergyWeightComp` | `double` | `0.35` | Peso da compressão. |
-| `InpZoneEnergyWeightChop` | `double` | `0.20` | Peso do chop (1-ER da zona). |
-| `InpZoneEnergyWeightTouch` | `double` | `0.15` | Peso dos toques nas bordas. |
+| Parameter                        | Type     | Default | Description                                        |
+| -------------------------------- | -------- | ------: | -------------------------------------------------- |
+| `InpEnableZoneEnergy`            | `bool`   |  `true` | Enables calculation and display of `ZONE ENERGY`.  |
+| `InpZoneEnergyLenScale`          | `int`    |   `120` | Duration scale for `EnergyLen` component.          |
+| `InpZoneEnergyTouchMarginPoints` | `int`    |    `30` | Margin (points) to count top/bottom touches.       |
+| `InpZoneEnergyTouchScale`        | `int`    |    `12` | Touch normalization scale.                         |
+| `InpZoneEnergyWeightLen`         | `double` |  `0.30` | Duration weight.                                   |
+| `InpZoneEnergyWeightComp`        | `double` |  `0.35` | Compression weight.                                |
+| `InpZoneEnergyWeightChop`        | `double` |  `0.20` | Chop weight (1-ER of the zone).                    |
+| `InpZoneEnergyWeightTouch`       | `double` |  `0.15` | Edge-touch weight.                                 |
 
-> Observação: os pesos de energia são normalizados automaticamente se a soma for diferente de `1`.
+> Note: energy weights are automatically normalized if their sum is different from `1`.
 
-### 7) Execução e debug
+### 7) Execution and Debug
 
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---|---:|---|
-| `InpDebug` | `bool` | `false` | Liga logs de debug no Journal. |
-| `InpOnCalculateDelaySeconds` | `int` | `5` | Delay mínimo entre execuções do `OnCalculate` (`0` desativa). |
+| Parameter                    | Type   | Default | Description                                                    |
+| ---------------------------- | ------ | ------: | -------------------------------------------------------------- |
+| `InpDebug`                   | `bool` | `false` | Enables debug logs in Journal.                                 |
+| `InpOnCalculateDelaySeconds` | `int`  |     `5` | Minimum delay between `OnCalculate` executions (`0` disables). |
 
-## Notas
+## Notes
 
-- O indicador usa abordagem estatística de preço; não depende de indicadores financeiros clássicos.
-- Em `OnInit`, o código remove objetos do gráfico atual (`ObjectsDeleteAll`).
+- The indicator uses a price-statistics approach; it does not depend on classic financial indicators.
+- In `OnInit`, the code removes objects from the current chart (`ObjectsDeleteAll`).
