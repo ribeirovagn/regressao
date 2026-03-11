@@ -73,7 +73,7 @@ input bool InpOnlyLastActiveAndLastBroken = true;
 
 // --- HORIZONTAL LINE PROJECTION (most recent zone) ------------------
 input bool InpDrawProjectionLines = true;
-input int InpProjectionCount = 5;                 // N lines above and N below
+input int InpProjectionCount = 10;                // N lines above and N below
 input bool InpProjectionIncludeZoneLevels = true; // also draws top/mid/bottom
 input int InpProjectionLineWidth = 1;
 input int InpProjectionLineAlpha = 160;       // 0..255
@@ -189,7 +189,7 @@ int HUDPanelHeight()
   const int GAP_TEXT_BAR = 8;
   const int PAD_BOTTOM = 10;
   const int BAR_H = MathMax(2, InpBarHeight);
-  const int lines = 5 + (InpShowTrendDetails ? 1 : 0); // estimate (title+3 base+optional energy)
+  const int lines = 5 + (InpEnableZoneEnergy ? 1 : 0) + (InpShowTrendDetails ? 1 : 0); // estimate (title+REGIME+DIR+STRENGTH+STEP+optional energy+optional details)
   const int textBlockH = PAD_TOP + lines * LINE_H;
   const int barBlockH = GAP_TEXT_BAR + BAR_H + PAD_BOTTOM;
   return MathMax(MathMax(0, InpHUDHeight), textBlockH + barBlockH);
@@ -609,6 +609,7 @@ void DeleteTrendHUD()
 void RenderTrendHUD(const ENUM_REGIME_STATE regime,
                     const int dir,
                     const double strength01,
+                    const double hud_step,
                     const double r2,
                     const double er,
                     const double slope01,
@@ -659,6 +660,10 @@ void RenderTrendHUD(const ENUM_REGIME_STATE regime,
   AppendHUDLine(lines, StringFormat("REGIME: %s", regimeText));
   AppendHUDLine(lines, StringFormat("DIR: %s", dirText));
   AppendHUDLine(lines, StringFormat("STRENGTH: %d", strengthPct));
+  if (hud_step >= 0.0)
+    AppendHUDLine(lines, StringFormat("STEP: %s", DoubleToString(hud_step, MathMax(0, _Digits))));
+  else
+    AppendHUDLine(lines, "STEP: N/A");
   if (hasZoneEnergy)
     AppendHUDLine(lines, StringFormat("ZONE ENERGY: %d", ClampInt(zoneEnergyPct, 0, 100)));
   if (InpShowTrendDetails)
@@ -1258,8 +1263,14 @@ int OnCalculate(const int rates_total,
   else if (trend_strength >= Clamp01(InpTrendThreshold))
     regime = REGIME_TREND;
 
+  double hud_step = -1.0;
+  if (lastActive.valid)
+    hud_step = lastActive.top - lastActive.bottom;
+  else if (lastBroken.valid)
+    hud_step = lastBroken.top - lastBroken.bottom;
+
   if (InpEnableTrendHUD)
-    RenderTrendHUD(regime, trend_dir, trend_strength, r2_0, er_0, slope01_0,
+    RenderTrendHUD(regime, trend_dir, trend_strength, hud_step, r2_0, er_0, slope01_0,
                    hasZoneEnergy, zone_energy_pct);
   else
     DeleteTrendHUD();
