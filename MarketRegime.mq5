@@ -82,6 +82,8 @@ input color InpProjectionLineColor = clrGold; // line color
 // --- TREND HUD (trend strength) -------------------------------------
 input bool InpEnableTrendHUD = true;
 input bool InpShowTrendDetails = false;
+input bool InpShowBiasAndMicrotrend = true;
+input int InpMicrotrendWindow = 30;
 input bool InpHUDDraggable = true;
 input int InpHUDXDefault = 12;
 input int InpHUDYDefault = 12;
@@ -97,6 +99,14 @@ input double InpTrendThreshold = 0.60;
 input double InpTrendWeightSlope = 0.40;
 input double InpTrendWeightR2 = 0.40;
 input double InpTrendWeightER = 0.20;
+
+// --- BREAK ALERTS ----------------------------------------------------
+input bool InpEnableBreakAlerts = true;
+input bool InpEnablePopupAlert = true;
+input bool InpEnableSoundAlert = true;
+input bool InpEnablePushAlert = false;
+input string InpAlertSoundFile = "alert.wav";
+input int InpAlertMinStrength = 40; // 0..100
 
 // --- ZONE ENERGY (price statistics, no financial indicators) ---------
 input bool InpEnableZoneEnergy = true;
@@ -173,6 +183,39 @@ int g_hud_x = 12;
 int g_hud_y = 12;
 bool g_hud_is_dragging = false;
 bool g_hud_user_moved = false;
+long g_last_alert_zone_hash = 0;
+int g_last_alert_dir = 0;
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+string DirectionToText(const int dir)
+  {
+   if(dir > 0)
+      return "UP";
+   if(dir < 0)
+      return "DOWN";
+   return "NEUTRAL";
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int HUDLineCountEstimate()
+  {
+   int lines = 0;
+   lines += 1; // title
+   lines += 1; // regime
+   lines += (InpShowBiasAndMicrotrend ? 2 : 1);
+   lines += 1; // strength
+   lines += 1; // step
+   lines += 1; // step source
+   if(InpEnableZoneEnergy)
+      lines += 1;
+   if(InpShowTrendDetails)
+      lines += 1;
+   return lines;
+  }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -192,7 +235,7 @@ int HUDPanelHeight()
    const int GAP_TEXT_BAR = 8;
    const int PAD_BOTTOM = 10;
    const int BAR_H = MathMax(2, InpBarHeight);
-   const int lines = 5 + (InpEnableZoneEnergy ? 1 : 0) + (InpShowTrendDetails ? 1 : 0); // estimate (title+REGIME+DIR+STRENGTH+STEP+optional energy+optional details)
+   const int lines = HUDLineCountEstimate();
    const int textBlockH = PAD_TOP + lines * LINE_H;
    const int barBlockH = GAP_TEXT_BAR + BAR_H + PAD_BOTTOM;
    return MathMax(MathMax(0, InpHUDHeight), textBlockH + barBlockH);
@@ -341,6 +384,78 @@ double GetSlopeThreshold()
    if(InpSlopeNormMode == SLOPE_NORM_MEAN)
       return (InpSlopeThresholdMean > 0.0 ? InpSlopeThresholdMean : 0.0001);
    return (InpSlopeThresholdStd > 0.0 ? InpSlopeThresholdStd : 0.20);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool ComputeLRMetricsAtIndex(const int i,
+                             const int window,
+                             const double &close[],
+                             const double eps,
+                             double &b_norm,
+                             double &r2)
+  {
+   b_norm = 0.0;
+   r2 = 0.0;
+
+   const int total = ArraySize(close);
+   if(i < 0 || window < 2 || total <= 0 || (i + window) > total)
+      return false;
+
+   const double n = (double)window;
+   const double sum_x = n * (n - 1.0) * 0.5;
+   const double sum_x2 = n * (n - 1.0) * (2.0 * n - 1.0) / 6.0;
+   const double denom = n * sum_x2 - sum_x * sum_x;
+   if(MathAbs(denom) <= eps)
+      return false;
+
+   double sum_y = 0.0;
+   double sum_xy = 0.0;
+   double sum_y2 = 0.0;
+
+   for(int k = 0; k < window; ++k)
+     {
+      const double y = close[i + (window - 1 - k)];
+      sum_y += y;
+      sum_xy += (double)k * y;
+      sum_y2 += y * y;
+     }
+
+   const double b = (n * sum_xy - sum_x * sum_y) / denom;
+   const double mean_y = sum_y / n;
+   const double ss_tot = sum_y2 - (sum_y * sum_y) / n;
+
+   if(InpSlopeNormMode == SLOPE_NORM_MEAN)
+     {
+      if(MathAbs(mean_y) > eps)
+         b_norm = b / mean_y;
+     }
+   else
+     {
+      if(ss_tot > eps && (n - 1.0) > 0.0)
+        {
+         const double sigma = MathSqrt(ss_tot / (n - 1.0));
+         if(sigma > eps)
+            b_norm = b * (n - 1.0) / sigma;
+        }
+     }
+
+   if(ss_tot > eps)
+     {
+      const double a = (sum_y - b * sum_x) / n;
+      double ss_res = 0.0;
+      for(int k = 0; k < window; ++k)
+        {
+         const double yhat = a + b * (double)k;
+         const double y = close[i + (window - 1 - k)];
+         const double e = y - yhat;
+         ss_res += e * e;
+        }
+      r2 = Clamp01(1.0 - (ss_res / ss_tot));
+     }
+
+   return true;
   }
 
 //+------------------------------------------------------------------+
@@ -610,9 +725,11 @@ void DeleteTrendHUD()
 //|                                                                  |
 //+------------------------------------------------------------------+
 void RenderTrendHUD(const ENUM_REGIME_STATE regime,
-                    const int dir,
+                    const int biasDir,
+                    const int microDir,
                     const double strength01,
                     const double hud_step,
+                    const string hudStepSource,
                     const double r2,
                     const double er,
                     const double slope01,
@@ -644,16 +761,17 @@ void RenderTrendHUD(const ENUM_REGIME_STATE regime,
    const int alpha = ClampInt((int)MathRound(aMin + (aMax - aMin) * Clamp01(strength01)), 0, 255);
 
    const string regimeText = (regime == REGIME_RANGE ? "RANGE" : (regime == REGIME_TREND ? "TREND" : "MIXED"));
-   const string dirText = (dir > 0 ? "UP" : (dir < 0 ? "DOWN" : "NEUTRAL"));
+   const string biasText = DirectionToText(biasDir);
+   const string microText = DirectionToText(microDir);
    const int strengthPct = (int)MathRound(Clamp01(strength01) * 100.0);
 
    color base = clrSilver;
    if(regime != REGIME_MIXED)
      {
-      if(dir > 0)
+      if(biasDir > 0)
          base = clrLimeGreen;
       else
-         if(dir < 0)
+         if(biasDir < 0)
             base = clrTomato;
      }
    const color activeColor = ColorToARGB(base, (uchar)alpha);
@@ -662,14 +780,26 @@ void RenderTrendHUD(const ENUM_REGIME_STATE regime,
    ArrayResize(lines, 0);
    AppendHUDLine(lines, "MarketRegime Zones v2.13");
    AppendHUDLine(lines, StringFormat("REGIME: %s", regimeText));
-   AppendHUDLine(lines, StringFormat("DIR: %s", dirText));
+   if(InpShowBiasAndMicrotrend)
+     {
+      AppendHUDLine(lines, StringFormat("BIAS: %s", biasText));
+      AppendHUDLine(lines, StringFormat("MICROTREND: %s", microText));
+     }
+   else
+      AppendHUDLine(lines, StringFormat("DIR: %s", biasText));
    AppendHUDLine(lines, StringFormat("STRENGTH: %d", strengthPct));
    if(hud_step >= 0.0)
       AppendHUDLine(lines, StringFormat("STEP: %s", DoubleToString(hud_step, MathMax(0, _Digits))));
    else
       AppendHUDLine(lines, "STEP: N/A");
-   if(hasZoneEnergy)
-      AppendHUDLine(lines, StringFormat("ZONE ENERGY: %d", ClampInt(zoneEnergyPct, 0, 100)));
+   AppendHUDLine(lines, StringFormat("STEP SRC: %s", hudStepSource));
+   if(InpEnableZoneEnergy)
+     {
+      if(hasZoneEnergy)
+         AppendHUDLine(lines, StringFormat("ZONE ENERGY: %d", ClampInt(zoneEnergyPct, 0, 100)));
+      else
+         AppendHUDLine(lines, "ZONE ENERGY: N/A");
+     }
    if(InpShowTrendDetails)
       AppendHUDLine(lines, StringFormat("R2: %.2f  ER: %.2f  S: %.2f", Clamp01(r2), Clamp01(er), Clamp01(slope01)));
 
@@ -807,7 +937,61 @@ long PriceToKey(const double price)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-long HashZone(const ZoneInfo &z)
+string TimeframeToString(const ENUM_TIMEFRAMES tf)
+  {
+   switch(tf)
+     {
+      case PERIOD_M1:
+         return "M1";
+      case PERIOD_M2:
+         return "M2";
+      case PERIOD_M3:
+         return "M3";
+      case PERIOD_M4:
+         return "M4";
+      case PERIOD_M5:
+         return "M5";
+      case PERIOD_M6:
+         return "M6";
+      case PERIOD_M10:
+         return "M10";
+      case PERIOD_M12:
+         return "M12";
+      case PERIOD_M15:
+         return "M15";
+      case PERIOD_M20:
+         return "M20";
+      case PERIOD_M30:
+         return "M30";
+      case PERIOD_H1:
+         return "H1";
+      case PERIOD_H2:
+         return "H2";
+      case PERIOD_H3:
+         return "H3";
+      case PERIOD_H4:
+         return "H4";
+      case PERIOD_H6:
+         return "H6";
+      case PERIOD_H8:
+         return "H8";
+      case PERIOD_H12:
+         return "H12";
+      case PERIOD_D1:
+         return "D1";
+      case PERIOD_W1:
+         return "W1";
+      case PERIOD_MN1:
+         return "MN1";
+     }
+
+   return EnumToString(tf);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+long BuildZoneAlertHash(const ZoneInfo &z)
   {
    long h = 1469598103934665603;
    if(!z.valid)
@@ -821,6 +1005,49 @@ long HashZone(const ZoneInfo &z)
    h = HashMix(h, (long)z.state);
    h = HashMix(h, (long)z.length);
    return h;
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void FireBreakAlert(const ZoneInfo &z,
+                    const int dir,
+                    const int strengthPct,
+                    const int zoneEnergyPct,
+                    const bool hasZoneEnergy)
+  {
+   const string breakText = StringFormat("BREAK %s", DirectionToText(dir));
+   double price = 0.0;
+   if(!SymbolInfoDouble(_Symbol, SYMBOL_BID, price) || price <= 0.0)
+      price = iClose(_Symbol, (ENUM_TIMEFRAMES)_Period, 0);
+   if(price <= 0.0)
+      price = (dir > 0 ? z.top : z.bottom);
+
+   string msg = StringFormat("[MRZ] %s | %s %s | Price: %s | Step: %s | Strength: %d",
+                             breakText,
+                             _Symbol,
+                             TimeframeToString((ENUM_TIMEFRAMES)_Period),
+                             DoubleToString(price, MathMax(0, _Digits)),
+                             DoubleToString(MathMax(0.0, z.top - z.bottom), MathMax(0, _Digits)),
+                             ClampInt(strengthPct, 0, 100));
+   if(hasZoneEnergy)
+      msg += StringFormat(" | Energy: %d", ClampInt(zoneEnergyPct, 0, 100));
+
+   Print(msg);
+   if(InpEnablePopupAlert)
+      Alert(msg);
+   if(InpEnableSoundAlert)
+      PlaySound(InpAlertSoundFile);
+   if(InpEnablePushAlert)
+      SendNotification(msg);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+long HashZone(const ZoneInfo &z)
+  {
+   return BuildZoneAlertHash(z);
   }
 
 //+------------------------------------------------------------------+
@@ -854,6 +1081,8 @@ int OnInit()
    if(InpMinZoneBars < 2)
       return INIT_PARAMETERS_INCORRECT;
    if(InpGapTolerance < 0)
+      return INIT_PARAMETERS_INCORRECT;
+   if(InpMicrotrendWindow < 2)
       return INIT_PARAMETERS_INCORRECT;
    if(InpOnCalculateDelaySeconds < 0)
       return INIT_PARAMETERS_INCORRECT;
@@ -924,7 +1153,6 @@ int OnCalculate(const int rates_total,
    ArraySetAsSeries(close, true);
 
    const int window = InpWindow;
-   const double n = (double)window;
    const int last_valid = rates_total - window;
    if(last_valid < 0)
       return rates_total;
@@ -939,13 +1167,6 @@ int OnCalculate(const int rates_total,
       R2Buffer[i] = EMPTY_VALUE;
      }
 
-// Pre-sums of x=0..n-1
-   const double sum_x = n * (n - 1.0) * 0.5;
-   const double sum_x2 = n * (n - 1.0) * (2.0 * n - 1.0) / 6.0;
-   const double denom = n * sum_x2 - sum_x * sum_x;
-   if(MathAbs(denom) <= eps)
-      return prev_calculated;
-
    const double slope_th = GetSlopeThreshold();
    const double wSlope = Clamp01(InpScoreSlopeWeight);
    const double wR2 = 1.0 - wSlope;
@@ -953,53 +1174,16 @@ int OnCalculate(const int rates_total,
 // 1) Compute LR + R2 + score + flag
    for(int i = last_valid; i >= 0; --i)
      {
-      double sum_y = 0.0;
-      double sum_xy = 0.0;
-      double sum_y2 = 0.0;
-
-      for(int k = 0; k < window; ++k)
-        {
-         const double y = close[i + (window - 1 - k)];
-         sum_y += y;
-         sum_xy += (double)k * y;
-         sum_y2 += y * y;
-        }
-
-      const double b = (n * sum_xy - sum_x * sum_y) / denom;
-      const double mean_y = sum_y / n;
-      const double ss_tot = sum_y2 - (sum_y * sum_y) / n;
-
-      // slope norm
       double b_norm = 0.0;
-      if(InpSlopeNormMode == SLOPE_NORM_MEAN)
-        {
-         if(MathAbs(mean_y) > eps)
-            b_norm = b / mean_y;
-        }
-      else // STD
-        {
-         if(ss_tot > eps && (n - 1.0) > 0.0)
-           {
-            const double sigma = MathSqrt(ss_tot / (n - 1.0));
-            if(sigma > eps)
-               b_norm = b * (n - 1.0) / sigma;
-           }
-        }
-
-      // R²
       double r2 = 0.0;
-      if(ss_tot > eps)
+      if(!ComputeLRMetricsAtIndex(i, window, close, eps, b_norm, r2))
         {
-         const double a = (sum_y - b * sum_x) / n;
-         double ss_res = 0.0;
-         for(int k = 0; k < window; ++k)
-           {
-            const double yhat = a + b * (double)k;
-            const double y = close[i + (window - 1 - k)];
-            const double e = y - yhat;
-            ss_res += e * e;
-           }
-         r2 = Clamp01(1.0 - (ss_res / ss_tot));
+         SlopeNormBuffer[i] = EMPTY_VALUE;
+         R2Buffer[i] = EMPTY_VALUE;
+         FlagBuffer[i] = 0.0;
+         ScoreBuffer[i] = EMPTY_VALUE;
+         MarkerBuffer[i] = EMPTY_VALUE;
+         continue;
         }
 
       SlopeNormBuffer[i] = b_norm;
@@ -1256,6 +1440,7 @@ int OnCalculate(const int rates_total,
    const double er_0 = ComputeEfficiencyRatio(close, window);
    const double slope01_0 = Clamp01((slope_th > 0.0) ? (MathAbs(b_norm0) / slope_th) : 0.0);
    const double trend_strength = ComputeTrendStrength(b_norm0, slope_th, r2_0, er_0);
+   const int trend_strength_pct = ClampInt((int)MathRound(Clamp01(trend_strength) * 100.0), 0, 100);
 
    int trend_dir = 0;
    if(b_norm0 > eps)
@@ -1263,6 +1448,19 @@ int OnCalculate(const int rates_total,
    else
       if(b_norm0 < -eps)
          trend_dir = -1;
+
+   double micro_b_norm = 0.0;
+   double micro_r2 = 0.0;
+   int micro_dir = 0;
+   const int micro_window = MathMax(2, InpMicrotrendWindow);
+   if(ComputeLRMetricsAtIndex(0, micro_window, close, eps, micro_b_norm, micro_r2))
+     {
+      if(micro_b_norm > eps)
+         micro_dir = 1;
+      else
+         if(micro_b_norm < -eps)
+            micro_dir = -1;
+     }
 
    ENUM_REGIME_STATE regime = REGIME_MIXED;
    if(FlagBuffer[0] == 1.0 || lastActive.valid)
@@ -1272,17 +1470,46 @@ int OnCalculate(const int rates_total,
          regime = REGIME_TREND;
 
    double hud_step = -1.0;
+   string hud_step_source = "N/A";
    if(lastActive.valid)
+     {
       hud_step = lastActive.top - lastActive.bottom;
+      hud_step_source = "ACTIVE";
+     }
    else
       if(lastBroken.valid)
+        {
          hud_step = lastBroken.top - lastBroken.bottom;
+         hud_step_source = "LAST BROKEN";
+        }
 
    if(InpEnableTrendHUD)
-      RenderTrendHUD(regime, trend_dir, trend_strength, hud_step, r2_0, er_0, slope01_0,
+      RenderTrendHUD(regime, trend_dir, micro_dir, trend_strength, hud_step, hud_step_source, r2_0, er_0, slope01_0,
                      hasZoneEnergy, zone_energy_pct);
    else
       DeleteTrendHUD();
+
+   if(InpEnableBreakAlerts && lastBroken.valid)
+     {
+      int break_dir = 0;
+      if(lastBroken.state == Z_BREAK_UP)
+         break_dir = 1;
+      else
+         if(lastBroken.state == Z_BREAK_DOWN)
+            break_dir = -1;
+
+      if(break_dir != 0)
+        {
+         const long alert_hash = BuildZoneAlertHash(lastBroken);
+         const bool should_check_alert = (alert_hash != g_last_alert_zone_hash || break_dir != g_last_alert_dir);
+         if(should_check_alert && trend_strength_pct >= ClampInt(InpAlertMinStrength, 0, 100))
+           {
+            FireBreakAlert(lastBroken, break_dir, trend_strength_pct, zone_energy_pct, hasZoneEnergy);
+            g_last_alert_zone_hash = alert_hash;
+            g_last_alert_dir = break_dir;
+           }
+        }
+     }
 
    return rates_total;
   }
