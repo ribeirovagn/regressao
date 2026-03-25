@@ -1,5 +1,5 @@
 ﻿//+------------------------------------------------------------------+
-//|                          MarketRegime.mq5 (v2.13)           |
+//|                          MarketRegime.mq5 (v2.14)           |
 //|   MarketRegime (LR Close) + Zones (clusters)                      |
 //|   - Breakout color: active=blue, up=green, down=red               |
 //|   - Zone midline (mid)                                             |
@@ -10,7 +10,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Vagner Ribeiro"
 #property link "https://www.mql5.com"
-#property version "2.13"
+#property version "2.14"
 #property strict
 
 #property indicator_chart_window
@@ -30,10 +30,10 @@ input int InpWindow = 240;
 // 0 = b/mean(y)
 // 1 = b*(n-1)/stdev(y)
 enum ENUM_SLOPE_NORM_MODE
-  {
+{
    SLOPE_NORM_MEAN = 0,
    SLOPE_NORM_STD = 1
-  };
+};
 input ENUM_SLOPE_NORM_MODE InpSlopeNormMode = SLOPE_NORM_MEAN;
 
 // Separate thresholds by mode
@@ -76,12 +76,12 @@ input bool InpDrawProjectionLines = true;
 input int InpProjectionCount = 10;                // N lines above and N below
 input bool InpProjectionIncludeZoneLevels = true; // also draws top/mid/bottom
 input int InpProjectionLineWidth = 1;
-input int InpProjectionLineAlpha = 10;       // 0..255
+input int InpProjectionLineAlpha = 10;        // 0..255
 input color InpProjectionLineColor = clrGold; // line color
 
 // --- TREND HUD (trend strength) -------------------------------------
 input bool InpEnableTrendHUD = true;
-input bool InpShowTrendDetails = false;
+input bool InpShowTrendDetails = true;
 input bool InpShowBiasAndMicrotrend = true;
 input int InpMicrotrendWindow = 30;
 input bool InpHUDDraggable = true;
@@ -100,13 +100,20 @@ input double InpTrendWeightSlope = 0.40;
 input double InpTrendWeightR2 = 0.40;
 input double InpTrendWeightER = 0.20;
 
-// --- BREAK ALERTS ----------------------------------------------------
-input bool InpEnableBreakAlerts = true;
-input bool InpEnablePopupAlert = true;
-input bool InpEnableSoundAlert = true;
-input bool InpEnablePushAlert = false;
-input string InpAlertSoundFile = "alert.wav";
-input int InpAlertMinStrength = 40; // 0..100
+// --- TREND EXHAUSTION -----------------------------------------------
+input bool InpEnableTrendExhaustion = true;
+input int InpExhaustLookback = 20;
+input double InpExhaustDistanceScale = 3.0;
+input double InpExhaustWeightDistance = 0.45;
+input double InpExhaustWeightStrength = 0.30;
+input double InpExhaustWeightNoise = 0.25;
+
+// --- BREAK QUALITY ---------------------------------------------------
+input bool InpEnableBreakQuality = true;
+input double InpBreakQualityWeightStrength = 0.35;
+input double InpBreakQualityWeightEnergy = 0.30;
+input double InpBreakQualityWeightPenetr = 0.20;
+input double InpBreakQualityWeightFresh = 0.15;
 
 // --- ZONE ENERGY (price statistics, no financial indicators) ---------
 input bool InpEnableZoneEnergy = true;
@@ -135,136 +142,155 @@ double DummyBuffer[];     // calc
 
 //---------------- TYPES --------------------------------------------
 enum ENUM_ZONE_STATE
-  {
+{
    Z_ACTIVE = 0,
    Z_BREAK_UP = 1,
    Z_BREAK_DOWN = 2
-  };
+};
 
 enum ENUM_REGIME_STATE
-  {
+{
    REGIME_RANGE = 0,
    REGIME_TREND = 1,
    REGIME_MIXED = 2
-  };
+};
 
 struct ZoneInfo
-  {
-   bool              valid;
-   datetime          t_left;  // oldest (left)
-   datetime          t_right; // most recent (right; can extend until breakout)
-   double            top;
-   double            bottom;
-   double            mid;
-   int               length;
-   double            avgScore;
-   double            path;
-   int               touchTop;
-   int               touchBot;
-   ENUM_ZONE_STATE   state;
-  };
+{
+   bool valid;
+   datetime t_left;  // oldest (left)
+   datetime t_right; // most recent (right; can extend until breakout)
+   double top;
+   double bottom;
+   double mid;
+   int length;
+   double avgScore;
+   double path;
+   int touchTop;
+   int touchBot;
+   ENUM_ZONE_STATE state;
+};
 
 //---------------- HELPERS -------------------------------------------
 double Clamp01(const double v) { return (v < 0 ? 0 : (v > 1 ? 1 : v)); }
 int ClampInt(const int v, const int lo, const int hi) { return (v < lo ? lo : (v > hi ? hi : v)); }
+const int HUD_MAX_LINES = 24;
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 string HUDLineName(const int idx) { return StringFormat("LZ_HUD_LINE_%d", idx); }
+bool HUDTextStartsWith(const string txt, const string prefix) { return (StringFind(txt, prefix) == 0); }
+bool IsPrimaryHUDLine(const string txt)
+{
+   return (HUDTextStartsWith(txt, "REGIME:") ||
+           HUDTextStartsWith(txt, "BIAS:") ||
+           HUDTextStartsWith(txt, "MICROTREND:") ||
+           HUDTextStartsWith(txt, "DIR:") ||
+           HUDTextStartsWith(txt, "STRENGTH:"));
+}
+bool IsDetailsHUDLine(const string txt) { return HUDTextStartsWith(txt, "R2:"); }
 void AppendHUDLine(string &lines[], const string txt)
-  {
+{
    const int n = ArraySize(lines);
    ArrayResize(lines, n + 1);
    lines[n] = txt;
-  }
+}
 
 int g_hud_corner = CORNER_LEFT_UPPER;
 int g_hud_x = 12;
 int g_hud_y = 12;
 bool g_hud_is_dragging = false;
 bool g_hud_user_moved = false;
-long g_last_alert_zone_hash = 0;
-int g_last_alert_dir = 0;
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 string DirectionToText(const int dir)
-  {
-   if(dir > 0)
+{
+   if (dir > 0)
       return "UP";
-   if(dir < 0)
+   if (dir < 0)
       return "DOWN";
    return "NEUTRAL";
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 int HUDLineCountEstimate()
-  {
+{
    int lines = 0;
    lines += 1; // title
    lines += 1; // regime
    lines += (InpShowBiasAndMicrotrend ? 2 : 1);
    lines += 1; // strength
+   lines += 1; // trend exhaustion
+   lines += 1; // break quality
    lines += 1; // step
    lines += 1; // step source
-   if(InpEnableZoneEnergy)
+   if (InpEnableZoneEnergy)
       lines += 1;
-   if(InpShowTrendDetails)
+   if (InpShowTrendDetails)
       lines += 1;
    return lines;
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 int HUDPanelWidth()
-  {
-   return MathMax(MathMax(0, InpHUDWidth), 220);
-  }
+{
+   return MathMax(MathMax(0, InpHUDWidth), 250);
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int HUDBarHeight()
+{
+   return MathMax(8, MathMin(MathMax(2, InpBarHeight), 9));
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 int HUDPanelHeight()
-  {
-   const int PAD_TOP = 8;
-   const int LINE_H = 16;
-   const int GAP_TEXT_BAR = 8;
-   const int PAD_BOTTOM = 10;
-   const int BAR_H = MathMax(2, InpBarHeight);
+{
+   const int PAD_TOP = 10;
+   const int LINE_H = 18;
+   const int GAP_TEXT_BAR = 10;
+   const int PAD_BOTTOM = 12;
+   const int BAR_H = HUDBarHeight();
    const int lines = HUDLineCountEstimate();
    const int textBlockH = PAD_TOP + lines * LINE_H;
    const int barBlockH = GAP_TEXT_BAR + BAR_H + PAD_BOTTOM;
    return MathMax(MathMax(0, InpHUDHeight), textBlockH + barBlockH);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 int HUDDefaultX(const int panelW)
-  {
+{
    const int chartW = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
-   if(chartW <= 0)
+   if (chartW <= 0)
       return MathMax(0, InpHUDXDefault);
    return MathMax(0, chartW - panelW - MathMax(0, InpHUDXDefault));
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 int HUDDefaultY()
-  {
+{
    return MathMax(0, InpHUDYDefault);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ClampHUDPosition(const int panelW, const int panelH)
-  {
+{
    int chartW = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
    int chartH = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS, 0);
 
@@ -273,42 +299,44 @@ void ClampHUDPosition(const int panelW, const int panelH)
 
    g_hud_x = MathMax(0, MathMin(g_hud_x, maxX));
    g_hud_y = MathMax(0, MathMin(g_hud_y, maxY));
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ShiftHUDObjectByDelta(const string name, const int dx, const int dy)
-  {
-   if(ObjectFind(0, name) < 0)
+{
+   if (ObjectFind(0, name) < 0)
       return;
 
    const int x = MathMax(0, (int)ObjectGetInteger(0, name, OBJPROP_XDISTANCE) + dx);
    const int y = MathMax(0, (int)ObjectGetInteger(0, name, OBJPROP_YDISTANCE) + dy);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ShiftHUDContentByDelta(const int dx, const int dy)
-  {
-   if(dx == 0 && dy == 0)
+{
+   if (dx == 0 && dy == 0)
       return;
 
+   ShiftHUDObjectByDelta("LZ_HUD_SHADOW", dx, dy);
+   ShiftHUDObjectByDelta("LZ_HUD_ACCENT", dx, dy);
    ShiftHUDObjectByDelta("LZ_HUD_BAR_BG", dx, dy);
    ShiftHUDObjectByDelta("LZ_HUD_BAR_FILL", dx, dy);
-   for(int i = 0; i < 20; ++i)
+   for (int i = 0; i < HUD_MAX_LINES; ++i)
       ShiftHUDObjectByDelta(HUDLineName(i), dx, dy);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ApplyHUDPositionToObjects()
-  {
-   if(ObjectFind(0, "LZ_HUD_BG") < 0)
+{
+   if (ObjectFind(0, "LZ_HUD_BG") < 0)
       return;
 
    const int targetX = MathMax(0, g_hud_x);
@@ -317,7 +345,7 @@ void ApplyHUDPositionToObjects()
    const int currY = MathMax(0, (int)ObjectGetInteger(0, "LZ_HUD_BG", OBJPROP_YDISTANCE));
    const int dx = targetX - currX;
    const int dy = targetY - currY;
-   if(dx == 0 && dy == 0)
+   if (dx == 0 && dy == 0)
       return;
 
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_CORNER, CORNER_LEFT_UPPER);
@@ -325,66 +353,66 @@ void ApplyHUDPositionToObjects()
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_YDISTANCE, targetY);
 
    ShiftHUDContentByDelta(dx, dy);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void SyncHUDPositionFromObject()
-  {
-   if(ObjectFind(0, "LZ_HUD_BG") < 0)
+{
+   if (ObjectFind(0, "LZ_HUD_BG") < 0)
       return;
 
    g_hud_corner = CORNER_LEFT_UPPER;
    g_hud_x = MathMax(0, (int)ObjectGetInteger(0, "LZ_HUD_BG", OBJPROP_XDISTANCE));
    g_hud_y = MathMax(0, (int)ObjectGetInteger(0, "LZ_HUD_BG", OBJPROP_YDISTANCE));
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 uchar ComputeAlphaByLen(const int len)
-  {
+{
    int aMin = ClampInt(InpAlphaMin, 0, 255);
    int aMax = ClampInt(InpAlphaMax, 0, 255);
-   if(aMax < aMin)
-     {
+   if (aMax < aMin)
+   {
       int t = aMin;
       aMin = aMax;
       aMax = t;
-     }
+   }
 
    int scale = MathMax(InpAlphaLenScale, 1);
    double t = (double)len / (double)scale;
-   if(t > 1.0)
+   if (t > 1.0)
       t = 1.0;
    int alpha = (int)MathRound(aMin + (aMax - aMin) * t);
    alpha = ClampInt(alpha, 0, 255);
    return (uchar)alpha;
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 int ComputeBorderWidthByScore(const double avgScore)
-  {
+{
    int wMin = MathMax(InpBorderMinWidth, 1);
    int wMax = MathMax(InpBorderMaxWidth, wMin);
 
    double s = Clamp01(avgScore);
    int w = (int)MathRound(wMin + (wMax - wMin) * s);
    return ClampInt(w, wMin, wMax);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 double GetSlopeThreshold()
-  {
-   if(InpSlopeNormMode == SLOPE_NORM_MEAN)
+{
+   if (InpSlopeNormMode == SLOPE_NORM_MEAN)
       return (InpSlopeThresholdMean > 0.0 ? InpSlopeThresholdMean : 0.0001);
    return (InpSlopeThresholdStd > 0.0 ? InpSlopeThresholdStd : 0.20);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -394,128 +422,138 @@ bool ComputeLRMetricsAtIndex(const int i,
                              const double &close[],
                              const double eps,
                              double &b_norm,
-                             double &r2)
-  {
+                             double &r2,
+                             double &er)
+{
    b_norm = 0.0;
    r2 = 0.0;
+   er = 0.0;
 
    const int total = ArraySize(close);
-   if(i < 0 || window < 2 || total <= 0 || (i + window) > total)
+   if (i < 0 || window < 2 || total <= 0 || (i + window) > total)
       return false;
 
    const double n = (double)window;
    const double sum_x = n * (n - 1.0) * 0.5;
    const double sum_x2 = n * (n - 1.0) * (2.0 * n - 1.0) / 6.0;
    const double denom = n * sum_x2 - sum_x * sum_x;
-   if(MathAbs(denom) <= eps)
+   if (MathAbs(denom) <= eps)
       return false;
 
    double sum_y = 0.0;
    double sum_xy = 0.0;
    double sum_y2 = 0.0;
 
-   for(int k = 0; k < window; ++k)
-     {
+   for (int k = 0; k < window; ++k)
+   {
       const double y = close[i + (window - 1 - k)];
       sum_y += y;
       sum_xy += (double)k * y;
       sum_y2 += y * y;
-     }
+   }
 
    const double b = (n * sum_xy - sum_x * sum_y) / denom;
    const double mean_y = sum_y / n;
    const double ss_tot = sum_y2 - (sum_y * sum_y) / n;
 
-   if(InpSlopeNormMode == SLOPE_NORM_MEAN)
-     {
-      if(MathAbs(mean_y) > eps)
+   if (InpSlopeNormMode == SLOPE_NORM_MEAN)
+   {
+      if (MathAbs(mean_y) > eps)
          b_norm = b / mean_y;
-     }
+   }
    else
-     {
-      if(ss_tot > eps && (n - 1.0) > 0.0)
-        {
+   {
+      if (ss_tot > eps && (n - 1.0) > 0.0)
+      {
          const double sigma = MathSqrt(ss_tot / (n - 1.0));
-         if(sigma > eps)
+         if (sigma > eps)
             b_norm = b * (n - 1.0) / sigma;
-        }
-     }
+      }
+   }
 
-   if(ss_tot > eps)
-     {
+   if (ss_tot > eps)
+   {
       const double a = (sum_y - b * sum_x) / n;
       double ss_res = 0.0;
-      for(int k = 0; k < window; ++k)
-        {
+      for (int k = 0; k < window; ++k)
+      {
          const double yhat = a + b * (double)k;
          const double y = close[i + (window - 1 - k)];
          const double e = y - yhat;
          ss_res += e * e;
-        }
+      }
       r2 = Clamp01(1.0 - (ss_res / ss_tot));
-     }
+   }
+
+   const double net = MathAbs(close[i] - close[i + window - 1]);
+   double path = 0.0;
+   for (int k = i; k < i + window - 1; ++k)
+      path += MathAbs(close[k] - close[k + 1]);
+
+   if (path > eps)
+      er = Clamp01(net / path);
 
    return true;
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void DeleteByPrefix(const string prefix)
-  {
+{
    int total = ObjectsTotal(0, 0, -1);
-   for(int i = total - 1; i >= 0; --i)
-     {
+   for (int i = total - 1; i >= 0; --i)
+   {
       string name = ObjectName(0, i, 0, -1);
-      if(StringFind(name, prefix) == 0)
+      if (StringFind(name, prefix) == 0)
          ObjectDelete(0, name);
-     }
-  }
+   }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 string ZoneRectName(const int idx, const datetime t1, const datetime t2)
-  {
+{
    return StringFormat("LZ_RECT_%d_%I64d_%I64d", idx, (long)t1, (long)t2);
-  }
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 string ZoneMidName(const int idx, const datetime t1, const datetime t2)
-  {
+{
    return StringFormat("LZ_MID_%d_%I64d_%I64d", idx, (long)t1, (long)t2);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 color ZoneBaseColor(const ENUM_ZONE_STATE st)
-  {
-   if(st == Z_BREAK_UP)
+{
+   if (st == Z_BREAK_UP)
       return clrLimeGreen;
-   if(st == Z_BREAK_DOWN)
+   if (st == Z_BREAK_DOWN)
       return clrTomato;
    return clrDodgerBlue; // active
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void DrawZone(const int idx, const ZoneInfo &z)
-  {
-   if(!z.valid)
+{
+   if (!z.valid)
       return;
 
    uchar alpha = ComputeAlphaByLen(z.length);
    int width = ComputeBorderWidthByScore(z.avgScore);
    color base = ZoneBaseColor(z.state);
-   color c = ColorToARGB(base, alpha);
+   color c = (color)ColorToARGB(base, alpha);
 
    string rect = ZoneRectName(idx, z.t_left, z.t_right);
 
-   if(ObjectCreate(0, rect, OBJ_RECTANGLE, 0, z.t_left, z.top, z.t_right, z.bottom))
-     {
+   if (ObjectCreate(0, rect, OBJ_RECTANGLE, 0, z.t_left, z.top, z.t_right, z.bottom))
+   {
       ObjectSetInteger(0, rect, OBJPROP_COLOR, c);
       ObjectSetInteger(0, rect, OBJPROP_BACK, true);
       ObjectSetInteger(0, rect, OBJPROP_FILL, true);
@@ -523,14 +561,14 @@ void DrawZone(const int idx, const ZoneInfo &z)
       ObjectSetInteger(0, rect, OBJPROP_WIDTH, width);
       ObjectSetInteger(0, rect, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, rect, OBJPROP_HIDDEN, true);
-     }
+   }
 
-   if(InpDrawMidLine)
-     {
+   if (InpDrawMidLine)
+   {
       string mid = ZoneMidName(idx, z.t_left, z.t_right);
-      if(ObjectCreate(0, mid, OBJ_TREND, 0, z.t_left, z.mid, z.t_right, z.mid))
-        {
-         ObjectSetInteger(0, mid, OBJPROP_COLOR, ColorToARGB(clrSilver, ClampInt(alpha + 40, 0, 255)));
+      if (ObjectCreate(0, mid, OBJ_TREND, 0, z.t_left, z.mid, z.t_right, z.mid))
+      {
+         ObjectSetInteger(0, mid, OBJPROP_COLOR, (color)ColorToARGB(clrSilver, (uchar)ClampInt(alpha + 40, 0, 255)));
          ObjectSetInteger(0, mid, OBJPROP_WIDTH, MathMax(1, width));
          ObjectSetInteger(0, mid, OBJPROP_STYLE, STYLE_DOT);
          ObjectSetInteger(0, mid, OBJPROP_RAY_RIGHT, false);
@@ -538,134 +576,218 @@ void DrawZone(const int idx, const ZoneInfo &z)
          ObjectSetInteger(0, mid, OBJPROP_BACK, true);
          ObjectSetInteger(0, mid, OBJPROP_SELECTABLE, false);
          ObjectSetInteger(0, mid, OBJPROP_HIDDEN, true);
-        }
-     }
-  }
+      }
+   }
+}
 
 //---------------- PROJECTION LINES ----------------------------------
 void DrawHLine(const string name, const double price, const color c, const int width)
-  {
-   if(ObjectCreate(0, name, OBJ_HLINE, 0, 0, price))
-     {
+{
+   if (ObjectCreate(0, name, OBJ_HLINE, 0, 0, price))
+   {
       ObjectSetInteger(0, name, OBJPROP_COLOR, c);
       ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
       ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_DOT);
       ObjectSetInteger(0, name, OBJPROP_BACK, true);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-     }
-  }
+   }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void DrawProjectionFromZone(const ZoneInfo &z)
-  {
-   if(!InpDrawProjectionLines || !z.valid)
+{
+   if (!InpDrawProjectionLines || !z.valid)
       return;
 
    DeleteByPrefix("LZ_LVL_");
 
    const double step = (z.top - z.bottom);
-   if(step <= 0.0)
+   if (step <= 0.0)
       return;
 
    const int cnt = MathMax(1, InpProjectionCount);
    const int w = MathMax(1, InpProjectionLineWidth);
    const uchar a = (uchar)ClampInt(InpProjectionLineAlpha, 0, 255);
 
-   const color cMid = ColorToARGB(InpProjectionLineColor, a);
-   const color cUp = ColorToARGB(clrLimeGreen, a);
-   const color cDn = ColorToARGB(clrDarkOrange, a);
+   const color cMid = (color)ColorToARGB(InpProjectionLineColor, a);
+   const color cUp = (color)ColorToARGB(clrLimeGreen, a);
+   const color cDn = (color)ColorToARGB(clrDarkOrange, a);
 
    int idx = 0;
 
-   if(InpProjectionIncludeZoneLevels)
-     {
+   if (InpProjectionIncludeZoneLevels)
+   {
       DrawHLine(StringFormat("LZ_LVL_%d_TOP", idx++), z.top, cUp, w);
       DrawHLine(StringFormat("LZ_LVL_%d_MID", idx++), z.mid, cMid, w);
       DrawHLine(StringFormat("LZ_LVL_%d_BOT", idx++), z.bottom, cDn, w);
-     }
+   }
 
-   for(int k = 1; k <= cnt; ++k)
-     {
+   for (int k = 1; k <= cnt; ++k)
+   {
       DrawHLine(StringFormat("LZ_LVL_%d_UP_%d", idx++, k), z.top + step * k, cUp, w);
       DrawHLine(StringFormat("LZ_LVL_%d_DN_%d", idx++, k), z.bottom - step * k, cDn, w);
-     }
+   }
 
-   if(InpDebug)
+   if (InpDebug)
       PrintFormat("[LZ] Projection step=%.5f cnt=%d (from zone top=%.5f bot=%.5f)",
                   step, cnt, z.top, z.bottom);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 double ComputeEfficiencyRatio(const double &close[], const int window)
-  {
-   if(window < 2)
+{
+   if (window < 2)
       return 0.0;
 
    const double net = MathAbs(close[0] - close[window - 1]);
    double path = 0.0;
-   for(int k = 0; k < window - 1; ++k)
+   for (int k = 0; k < window - 1; ++k)
       path += MathAbs(close[k] - close[k + 1]);
 
-   if(path <= 0.0)
+   if (path <= 0.0)
       return 0.0;
 
    return Clamp01(net / path);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double ComputeTrendStrength(const double b_norm,
-                            const double slope_threshold,
-                            const double r2,
-                            const double er)
-  {
+void NormalizeWeights3(double &w1,
+                       double &w2,
+                       double &w3)
+{
+   w1 = MathMax(0.0, w1);
+   w2 = MathMax(0.0, w2);
+   w3 = MathMax(0.0, w3);
+
+   double wSum = w1 + w2 + w3;
+   if (wSum <= 0.0)
+   {
+      w1 = (1.0 / 3.0);
+      w2 = (1.0 / 3.0);
+      w3 = (1.0 / 3.0);
+      return;
+   }
+
+   w1 /= wSum;
+   w2 /= wSum;
+   w3 /= wSum;
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void NormalizeWeights4(double &w1,
+                       double &w2,
+                       double &w3,
+                       double &w4)
+{
+   w1 = MathMax(0.0, w1);
+   w2 = MathMax(0.0, w2);
+   w3 = MathMax(0.0, w3);
+   w4 = MathMax(0.0, w4);
+
+   double wSum = w1 + w2 + w3 + w4;
+   if (wSum <= 0.0)
+   {
+      w1 = 0.25;
+      w2 = 0.25;
+      w3 = 0.25;
+      w4 = 0.25;
+      return;
+   }
+
+   w1 /= wSum;
+   w2 /= wSum;
+   w3 /= wSum;
+   w4 /= wSum;
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double ComputeTrendStrengthFromMetrics(const double b_norm,
+                                       const double r2,
+                                       const double er,
+                                       const double slope_threshold)
+{
    const double slope01 = Clamp01((slope_threshold > 0.0) ? (MathAbs(b_norm) / slope_threshold) : 0.0);
 
    double wSlope = MathMax(0.0, InpTrendWeightSlope);
    double wR2 = MathMax(0.0, InpTrendWeightR2);
    double wER = MathMax(0.0, InpTrendWeightER);
-   double wSum = wSlope + wR2 + wER;
+   NormalizeWeights3(wSlope, wR2, wER);
 
-   if(wSum <= 0.0)
-     {
-      wSlope = 1.0;
-      wR2 = 1.0;
-      wER = 1.0;
-      wSum = 3.0;
-     }
+   return Clamp01(wSlope * slope01 + wR2 * Clamp01(r2) + wER * Clamp01(er));
+}
 
-   const double nSlope = wSlope / wSum;
-   const double nR2 = wR2 / wSum;
-   const double nER = wER / wSum;
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool ComputeZoneEnergyFromZone(const ZoneInfo &z,
+                               const double zoneNetClose,
+                               const double eps,
+                               double &zoneEnergy01,
+                               int &zoneEnergyPct)
+{
+   zoneEnergy01 = 0.0;
+   zoneEnergyPct = 0;
+   if (!InpEnableZoneEnergy || !z.valid)
+      return false;
 
-   return Clamp01(nSlope * slope01 + nR2 * Clamp01(r2) + nER * Clamp01(er));
-  }
+   double wLen = InpZoneEnergyWeightLen;
+   double wComp = InpZoneEnergyWeightComp;
+   double wChop = InpZoneEnergyWeightChop;
+   double wTouch = InpZoneEnergyWeightTouch;
+   NormalizeWeights4(wLen, wComp, wChop, wTouch);
+
+   const int lenScale = MathMax(1, InpZoneEnergyLenScale);
+   const int touchScale = MathMax(1, InpZoneEnergyTouchScale);
+   const double len01 = Clamp01((double)z.length / (double)lenScale);
+   const double range = MathMax(0.0, z.top - z.bottom);
+   const double path = MathMax(z.path, eps);
+   const double compression01 = Clamp01(1.0 - (range / path));
+   const double er_zone = Clamp01(zoneNetClose / path);
+   const double chop01 = Clamp01(1.0 - er_zone);
+   const int touches = z.touchTop + z.touchBot;
+   const double touches01 = Clamp01((double)touches / (double)touchScale);
+
+   zoneEnergy01 = Clamp01(wLen * len01 + wComp * compression01 + wChop * chop01 + wTouch * touches01);
+   zoneEnergyPct = ClampInt((int)MathRound(zoneEnergy01 * 100.0), 0, 100);
+   return true;
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void EnsureHUDObjectsCreated()
-  {
+{
+   if (ObjectFind(0, "LZ_HUD_SHADOW") < 0)
+      ObjectCreate(0, "LZ_HUD_SHADOW", OBJ_RECTANGLE_LABEL, 0, 0, 0);
+
    bool bgCreated = false;
-   if(ObjectFind(0, "LZ_HUD_BG") < 0)
-     {
+   if (ObjectFind(0, "LZ_HUD_BG") < 0)
+   {
       ObjectCreate(0, "LZ_HUD_BG", OBJ_RECTANGLE_LABEL, 0, 0, 0);
       bgCreated = true;
-     }
+   }
 
-   if(ObjectFind(0, "LZ_HUD_BAR_BG") < 0)
+   if (ObjectFind(0, "LZ_HUD_ACCENT") < 0)
+      ObjectCreate(0, "LZ_HUD_ACCENT", OBJ_RECTANGLE_LABEL, 0, 0, 0);
+
+   if (ObjectFind(0, "LZ_HUD_BAR_BG") < 0)
       ObjectCreate(0, "LZ_HUD_BAR_BG", OBJ_RECTANGLE_LABEL, 0, 0, 0);
 
-   if(ObjectFind(0, "LZ_HUD_BAR_FILL") < 0)
+   if (ObjectFind(0, "LZ_HUD_BAR_FILL") < 0)
       ObjectCreate(0, "LZ_HUD_BAR_FILL", OBJ_RECTANGLE_LABEL, 0, 0, 0);
 
-// Cleanup of legacy old text/bar objects to avoid placeholders.
+   // Cleanup of legacy old text/bar objects to avoid placeholders.
    ObjectDelete(0, "LZ_HUD_TXT");
    ObjectDelete(0, "LZ_HUD_TITLE");
    ObjectDelete(0, "LZ_HUD_LINE1");
@@ -677,38 +799,40 @@ void EnsureHUDObjectsCreated()
    ObjectDelete(0, "LZ_HUD_EBAR_BG");
    ObjectDelete(0, "LZ_HUD_EBAR_FILL");
 
-   if(bgCreated)
-     {
+   if (bgCreated)
+   {
       const int panelW = HUDPanelWidth();
       const int panelH = HUDPanelHeight();
       g_hud_corner = CORNER_LEFT_UPPER;
-      if(!g_hud_user_moved)
-        {
+      if (!g_hud_user_moved)
+      {
          g_hud_x = HUDDefaultX(panelW);
          g_hud_y = HUDDefaultY();
-        }
+      }
       ClampHUDPosition(panelW, panelH);
       ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_CORNER, CORNER_LEFT_UPPER);
       ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_XDISTANCE, g_hud_x);
       ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_YDISTANCE, g_hud_y);
-     }
+   }
 
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_CORNER, CORNER_LEFT_UPPER);
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_SELECTABLE, InpHUDDraggable);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void DeleteTrendHUD()
-  {
+{
+   ObjectDelete(0, "LZ_HUD_SHADOW");
    ObjectDelete(0, "LZ_HUD_BG");
+   ObjectDelete(0, "LZ_HUD_ACCENT");
    ObjectDelete(0, "LZ_HUD_BAR_BG");
    ObjectDelete(0, "LZ_HUD_BAR_FILL");
-   for(int i = 0; i < 20; ++i)
+   for (int i = 0; i < HUD_MAX_LINES; ++i)
       ObjectDelete(0, HUDLineName(i));
 
-// Defensive cleanup of legacy names.
+   // Defensive cleanup of legacy names.
    ObjectDelete(0, "LZ_HUD_TXT");
    ObjectDelete(0, "LZ_HUD_TITLE");
    ObjectDelete(0, "LZ_HUD_LINE1");
@@ -719,7 +843,7 @@ void DeleteTrendHUD()
    ObjectDelete(0, "LZ_HUD_DETAILS");
    ObjectDelete(0, "LZ_HUD_EBAR_BG");
    ObjectDelete(0, "LZ_HUD_EBAR_FILL");
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -728,6 +852,10 @@ void RenderTrendHUD(const ENUM_REGIME_STATE regime,
                     const int biasDir,
                     const int microDir,
                     const double strength01,
+                    const bool hasTrendExhaustion,
+                    const int trendExhaustionPct,
+                    const bool hasBreakQuality,
+                    const int breakQualityPct,
                     const double hud_step,
                     const string hudStepSource,
                     const double r2,
@@ -735,29 +863,33 @@ void RenderTrendHUD(const ENUM_REGIME_STATE regime,
                     const double slope01,
                     const bool hasZoneEnergy,
                     const int zoneEnergyPct)
-  {
+{
    EnsureHUDObjectsCreated();
 
-   if(InpHUDDraggable && !g_hud_is_dragging && g_hud_user_moved)
+   if (InpHUDDraggable && !g_hud_is_dragging && g_hud_user_moved)
       SyncHUDPositionFromObject();
 
    const int corner = CORNER_LEFT_UPPER;
-   const int fontSize = MathMax(6, InpHUDFontSize);
-   const int PAD_X = 10;
-   const int PAD_TOP = 8;
-   const int LINE_H = 16;
-   const int PAD_BOTTOM = 10;
-   const int GAP_TEXT_BAR = 8;
-   const int BAR_H = MathMax(2, InpBarHeight);
+   const int fontSize = MathMax(7, InpHUDFontSize);
+   const int titleFontSize = MathMax(6, fontSize - 1);
+   const int detailFontSize = MathMax(6, fontSize - 1);
+   const int PAD_X = 12;
+   const int PAD_TOP = 10;
+   const int LINE_H = 18;
+   const int PAD_BOTTOM = 12;
+   const int GAP_TEXT_BAR = 10;
+   const int BAR_H = HUDBarHeight();
+   const int SHADOW_OFFSET = 2;
+   const int ACCENT_H = 2;
 
    int aMin = ClampInt(InpHUDAlphaMin, 0, 255);
    int aMax = ClampInt(InpHUDAlphaMax, 0, 255);
-   if(aMax < aMin)
-     {
+   if (aMax < aMin)
+   {
       int t = aMin;
       aMin = aMax;
       aMax = t;
-     }
+   }
    const int alpha = ClampInt((int)MathRound(aMin + (aMax - aMin) * Clamp01(strength01)), 0, 255);
 
    const string regimeText = (regime == REGIME_RANGE ? "RANGE" : (regime == REGIME_TREND ? "TREND" : "MIXED"));
@@ -766,52 +898,67 @@ void RenderTrendHUD(const ENUM_REGIME_STATE regime,
    const int strengthPct = (int)MathRound(Clamp01(strength01) * 100.0);
 
    color base = clrSilver;
-   if(regime != REGIME_MIXED)
-     {
-      if(biasDir > 0)
+   if (regime != REGIME_MIXED)
+   {
+      if (biasDir > 0)
          base = clrLimeGreen;
-      else
-         if(biasDir < 0)
-            base = clrTomato;
-     }
-   const color activeColor = ColorToARGB(base, (uchar)alpha);
+      else if (biasDir < 0)
+         base = clrTomato;
+   }
+   const color titleColor = (color)ColorToARGB(clrSilver, 180);
+   const color primaryColor = (color)ColorToARGB(base, (uchar)ClampInt(190 + (alpha / 6), 190, 230));
+   const color secondaryColor = (color)ColorToARGB(clrSilver, 210);
+   const color mutedColor = (color)ColorToARGB(clrSilver, 165);
+   const color panelBgColor = (color)ColorToARGB(clrBlack, 45);
+   const color shadowColor = (color)ColorToARGB(clrBlack, 20);
+   const color accentColor = (color)ColorToARGB(base, (uchar)ClampInt(95 + (alpha / 5), 95, 145));
+   const color barBgColor = (color)ColorToARGB(clrDimGray, 70);
+   const color activeColor = (color)ColorToARGB(base, (uchar)ClampInt(185 + (alpha / 5), 185, 235));
 
    string lines[];
    ArrayResize(lines, 0);
-   AppendHUDLine(lines, "MarketRegime Zones v2.13");
+   AppendHUDLine(lines, "MarketRegime Zones v2.14");
    AppendHUDLine(lines, StringFormat("REGIME: %s", regimeText));
-   if(InpShowBiasAndMicrotrend)
-     {
+   if (InpShowBiasAndMicrotrend)
+   {
       AppendHUDLine(lines, StringFormat("BIAS: %s", biasText));
       AppendHUDLine(lines, StringFormat("MICROTREND: %s", microText));
-     }
+   }
    else
       AppendHUDLine(lines, StringFormat("DIR: %s", biasText));
    AppendHUDLine(lines, StringFormat("STRENGTH: %d", strengthPct));
-   if(hud_step >= 0.0)
+   if (hasTrendExhaustion)
+      AppendHUDLine(lines, StringFormat("TREND EXHAUSTION: %d", ClampInt(trendExhaustionPct, 0, 100)));
+   else
+      AppendHUDLine(lines, "TREND EXHAUSTION: N/A");
+   if (hasBreakQuality)
+      AppendHUDLine(lines, StringFormat("BREAK QUALITY: %d", ClampInt(breakQualityPct, 0, 100)));
+   else
+      AppendHUDLine(lines, "BREAK QUALITY: N/A");
+   if (hud_step >= 0.0)
       AppendHUDLine(lines, StringFormat("STEP: %s", DoubleToString(hud_step, MathMax(0, _Digits))));
    else
       AppendHUDLine(lines, "STEP: N/A");
    AppendHUDLine(lines, StringFormat("STEP SRC: %s", hudStepSource));
-   if(InpEnableZoneEnergy)
-     {
-      if(hasZoneEnergy)
+   if (InpEnableZoneEnergy)
+   {
+      if (hasZoneEnergy)
          AppendHUDLine(lines, StringFormat("ZONE ENERGY: %d", ClampInt(zoneEnergyPct, 0, 100)));
       else
          AppendHUDLine(lines, "ZONE ENERGY: N/A");
-     }
-   if(InpShowTrendDetails)
+   }
+   if (InpShowTrendDetails)
       AppendHUDLine(lines, StringFormat("R2: %.2f  ER: %.2f  S: %.2f", Clamp01(r2), Clamp01(er), Clamp01(slope01)));
 
    const int linesCount = ArraySize(lines);
    const int panelW = HUDPanelWidth();
    const int textBlockH = PAD_TOP + linesCount * LINE_H;
    const int panelH = MathMax(MathMax(0, InpHUDHeight), textBlockH + GAP_TEXT_BAR + BAR_H + PAD_BOTTOM);
-   if(!g_hud_user_moved)
-     {
+   if (!g_hud_user_moved)
+   {
       g_hud_x = HUDDefaultX(panelW);
       g_hud_y = HUDDefaultY();
-     }
+   }
    ClampHUDPosition(panelW, panelH);
 
    const int x = MathMax(0, g_hud_x);
@@ -821,51 +968,96 @@ void RenderTrendHUD(const ENUM_REGIME_STATE regime,
    const int barX = x + PAD_X;
    int barY = y + panelH - PAD_BOTTOM - BAR_H;
    const int minBarY = y + PAD_TOP + linesCount * LINE_H + GAP_TEXT_BAR;
-   if(barY < minBarY)
+   if (barY < minBarY)
       barY = minBarY;
 
+   if (!g_hud_is_dragging)
+   {
+      ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_CORNER, corner);
+      ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_XDISTANCE, x + SHADOW_OFFSET);
+      ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_YDISTANCE, y + SHADOW_OFFSET);
+      ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_CORNER, corner);
+      ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_YDISTANCE, y);
+   }
+
+   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_XSIZE, panelW);
+   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_YSIZE, panelH);
+   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_COLOR, (color)clrNONE);
+   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_BGCOLOR, shadowColor);
+   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_BACK, false);
+   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_HIDDEN, true);
+
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_CORNER, corner);
-   if(!g_hud_is_dragging)
-     {
+   if (!g_hud_is_dragging)
+   {
       ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_XDISTANCE, x);
       ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_YDISTANCE, y);
-     }
+   }
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_XSIZE, panelW);
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_YSIZE, panelH);
-   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_COLOR, activeColor);
-   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_BGCOLOR, ColorToARGB(clrBlack, 60));
+   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_COLOR, (color)clrNONE);
+   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_BGCOLOR, panelBgColor);
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_BACK, false);
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_SELECTABLE, InpHUDDraggable);
-   if(!InpHUDDraggable)
+   if (!InpHUDDraggable)
       ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_SELECTED, false);
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_HIDDEN, true);
 
-   for(int i = 0; i < linesCount; ++i)
-     {
+   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_XSIZE, panelW);
+   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_YSIZE, ACCENT_H);
+   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_COLOR, (color)clrNONE);
+   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_BGCOLOR, accentColor);
+   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_BACK, false);
+   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_HIDDEN, true);
+
+   for (int i = 0; i < linesCount; ++i)
+   {
       const string name = HUDLineName(i);
-      if(ObjectFind(0, name) < 0)
+      if (ObjectFind(0, name) < 0)
          ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+
+      color lineColor = secondaryColor;
+      int lineFontSize = fontSize;
+      if (i == 0)
+      {
+         lineColor = titleColor;
+         lineFontSize = titleFontSize;
+      }
+      else if (IsDetailsHUDLine(lines[i]))
+      {
+         lineColor = mutedColor;
+         lineFontSize = detailFontSize;
+      }
+      else if (IsPrimaryHUDLine(lines[i]))
+      {
+         lineColor = primaryColor;
+         if (HUDTextStartsWith(lines[i], "STRENGTH:"))
+            lineFontSize = fontSize + 1;
+      }
 
       ObjectSetInteger(0, name, OBJPROP_CORNER, corner);
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, textX);
       ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y + PAD_TOP + i * LINE_H);
-      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
-      ObjectSetInteger(0, name, OBJPROP_COLOR, activeColor);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, lineFontSize);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, lineColor);
       ObjectSetInteger(0, name, OBJPROP_BACK, false);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-      ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+      ObjectSetString(0, name, OBJPROP_FONT, "Segoe UI");
       ObjectSetString(0, name, OBJPROP_TEXT, lines[i]);
-     }
+   }
 
-   for(int i = linesCount; i < 20; ++i)
-     {
+   for (int i = linesCount; i < HUD_MAX_LINES; ++i)
+   {
       const string name = HUDLineName(i);
-      if(ObjectFind(0, name) >= 0)
+      if (ObjectFind(0, name) >= 0)
          ObjectDelete(0, name);
-     }
+   }
 
-// Defensive cleanup of old names to prevent orphan "Label/label".
+   // Defensive cleanup of old names to prevent orphan "Label/label".
    ObjectDelete(0, "LZ_HUD_TXT");
    ObjectDelete(0, "LZ_HUD_TITLE");
    ObjectDelete(0, "LZ_HUD_LINE1");
@@ -877,124 +1069,70 @@ void RenderTrendHUD(const ENUM_REGIME_STATE regime,
    ObjectDelete(0, "LZ_HUD_EBAR_BG");
    ObjectDelete(0, "LZ_HUD_EBAR_FILL");
 
-   if(!g_hud_is_dragging)
-     {
+   if (!g_hud_is_dragging)
+   {
       ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_CORNER, corner);
       ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_XDISTANCE, barX);
       ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_YDISTANCE, barY);
-     }
+   }
    ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_XSIZE, barW);
    ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_YSIZE, BAR_H);
-   ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_COLOR, ColorToARGB(clrDimGray, 90));
-   ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_BGCOLOR, ColorToARGB(clrDimGray, 90));
+   ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_COLOR, (color)clrNONE);
+   ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_BGCOLOR, barBgColor);
    ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_BACK, false);
    ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_HIDDEN, true);
 
    int fillW = (int)MathRound((double)barW * Clamp01(strength01));
-   if(strength01 > 0.0 && fillW < 1)
+   if (strength01 > 0.0 && fillW < 1)
       fillW = 1;
-   if(fillW < 0)
+   if (fillW < 0)
       fillW = 0;
 
    color fillColor = activeColor;
-   if(strength01 <= 0.0)
-      fillColor = ColorToARGB(base, 0);
+   if (strength01 <= 0.0)
+      fillColor = (color)ColorToARGB(base, 0);
 
-   if(!g_hud_is_dragging)
-     {
+   if (!g_hud_is_dragging)
+   {
       ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_CORNER, corner);
       ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_XDISTANCE, barX);
       ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_YDISTANCE, barY);
-     }
+   }
    ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_XSIZE, MathMin(fillW, barW));
    ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_YSIZE, BAR_H);
-   ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_COLOR, fillColor);
+   ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_COLOR, (color)clrNONE);
    ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_BGCOLOR, fillColor);
    ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_BACK, false);
    ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_HIDDEN, true);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 long HashMix(const long h, const long v)
-  {
+{
    return (h ^ v) * 1099511628211;
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 long PriceToKey(const double price)
-  {
-   if(_Point > 0.0)
+{
+   if (_Point > 0.0)
       return (long)MathRound(price / _Point);
    return (long)MathRound(price * 100000000.0);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-string TimeframeToString(const ENUM_TIMEFRAMES tf)
-  {
-   switch(tf)
-     {
-      case PERIOD_M1:
-         return "M1";
-      case PERIOD_M2:
-         return "M2";
-      case PERIOD_M3:
-         return "M3";
-      case PERIOD_M4:
-         return "M4";
-      case PERIOD_M5:
-         return "M5";
-      case PERIOD_M6:
-         return "M6";
-      case PERIOD_M10:
-         return "M10";
-      case PERIOD_M12:
-         return "M12";
-      case PERIOD_M15:
-         return "M15";
-      case PERIOD_M20:
-         return "M20";
-      case PERIOD_M30:
-         return "M30";
-      case PERIOD_H1:
-         return "H1";
-      case PERIOD_H2:
-         return "H2";
-      case PERIOD_H3:
-         return "H3";
-      case PERIOD_H4:
-         return "H4";
-      case PERIOD_H6:
-         return "H6";
-      case PERIOD_H8:
-         return "H8";
-      case PERIOD_H12:
-         return "H12";
-      case PERIOD_D1:
-         return "D1";
-      case PERIOD_W1:
-         return "W1";
-      case PERIOD_MN1:
-         return "MN1";
-     }
-
-   return EnumToString(tf);
-  }
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-long BuildZoneAlertHash(const ZoneInfo &z)
-  {
+long BuildZoneHash(const ZoneInfo &z)
+{
    long h = 1469598103934665603;
-   if(!z.valid)
+   if (!z.valid)
       return HashMix(h, -1);
 
    h = HashMix(h, 1);
@@ -1005,50 +1143,15 @@ long BuildZoneAlertHash(const ZoneInfo &z)
    h = HashMix(h, (long)z.state);
    h = HashMix(h, (long)z.length);
    return h;
-  }
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void FireBreakAlert(const ZoneInfo &z,
-                    const int dir,
-                    const int strengthPct,
-                    const int zoneEnergyPct,
-                    const bool hasZoneEnergy)
-  {
-   const string breakText = StringFormat("BREAK %s", DirectionToText(dir));
-   double price = 0.0;
-   if(!SymbolInfoDouble(_Symbol, SYMBOL_BID, price) || price <= 0.0)
-      price = iClose(_Symbol, (ENUM_TIMEFRAMES)_Period, 0);
-   if(price <= 0.0)
-      price = (dir > 0 ? z.top : z.bottom);
-
-   string msg = StringFormat("[MRZ] %s | %s %s | Price: %s | Step: %s | Strength: %d",
-                             breakText,
-                             _Symbol,
-                             TimeframeToString((ENUM_TIMEFRAMES)_Period),
-                             DoubleToString(price, MathMax(0, _Digits)),
-                             DoubleToString(MathMax(0.0, z.top - z.bottom), MathMax(0, _Digits)),
-                             ClampInt(strengthPct, 0, 100));
-   if(hasZoneEnergy)
-      msg += StringFormat(" | Energy: %d", ClampInt(zoneEnergyPct, 0, 100));
-
-   Print(msg);
-   if(InpEnablePopupAlert)
-      Alert(msg);
-   if(InpEnableSoundAlert)
-      PlaySound(InpAlertSoundFile);
-   if(InpEnablePushAlert)
-      SendNotification(msg);
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 long HashZone(const ZoneInfo &z)
-  {
-   return BuildZoneAlertHash(z);
-  }
+{
+   return BuildZoneHash(z);
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1058,7 +1161,7 @@ long BuildRenderSignature(const ZoneInfo &mostRecent,
                           const ZoneInfo &lastBroken,
                           const int drawnCount,
                           const bool hasProjection)
-  {
+{
    long h = 1469598103934665603;
    h = HashMix(h, HashZone(mostRecent));
    h = HashMix(h, HashZone(lastActive));
@@ -1067,24 +1170,28 @@ long BuildRenderSignature(const ZoneInfo &mostRecent,
    h = HashMix(h, (hasProjection ? 1 : 0));
    h = HashMix(h, (InpOnlyLastActiveAndLastBroken ? 1 : 0));
    return h;
-  }
+}
 
 //+------------------------------------------------------------------+
 int OnInit()
-  {
+{
    ObjectsDeleteAll(0, -1, -1);
 
-   if(InpWindow < 2)
+   if (InpWindow < 2)
       return INIT_PARAMETERS_INCORRECT;
-   if(InpR2Threshold <= 0.0)
+   if (InpR2Threshold <= 0.0)
       return INIT_PARAMETERS_INCORRECT;
-   if(InpMinZoneBars < 2)
+   if (InpMinZoneBars < 2)
       return INIT_PARAMETERS_INCORRECT;
-   if(InpGapTolerance < 0)
+   if (InpGapTolerance < 0)
       return INIT_PARAMETERS_INCORRECT;
-   if(InpMicrotrendWindow < 2)
+   if (InpMicrotrendWindow < 2)
       return INIT_PARAMETERS_INCORRECT;
-   if(InpOnCalculateDelaySeconds < 0)
+   if (InpExhaustLookback < 2)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpExhaustDistanceScale <= 0.0)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpOnCalculateDelaySeconds < 0)
       return INIT_PARAMETERS_INCORRECT;
 
    const int panelW = HUDPanelWidth();
@@ -1114,10 +1221,10 @@ int OnInit()
    PlotIndexSetInteger(0, PLOT_ARROW_SHIFT, -8);
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-   IndicatorSetString(INDICATOR_SHORTNAME, "MarketRegime Zones (v2.13)");
+   IndicatorSetString(INDICATOR_SHORTNAME, "MarketRegime Zones (v2.14)");
 
    return INIT_SUCCEEDED;
-  }
+}
 
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
@@ -1130,21 +1237,21 @@ int OnCalculate(const int rates_total,
                 const long &tick_volume[],
                 const long &volume[],
                 const int &spread[])
-  {
+{
    const double eps = 1.0e-12;
    static ulong last_exec_ms = 0;
 
    const int delay_seconds = MathMax(InpOnCalculateDelaySeconds, 0);
-   if(delay_seconds > 0)
-     {
+   if (delay_seconds > 0)
+   {
       const ulong now_ms = GetTickCount64();
       const ulong delay_ms = (ulong)delay_seconds * 1000ULL;
-      if(last_exec_ms != 0 && (now_ms - last_exec_ms) < delay_ms)
+      if (last_exec_ms != 0 && (now_ms - last_exec_ms) < delay_ms)
          return prev_calculated;
       last_exec_ms = now_ms;
-     }
+   }
 
-   if(rates_total < InpWindow)
+   if (rates_total < InpWindow)
       return rates_total;
 
    ArraySetAsSeries(time, true);
@@ -1154,37 +1261,38 @@ int OnCalculate(const int rates_total,
 
    const int window = InpWindow;
    const int last_valid = rates_total - window;
-   if(last_valid < 0)
+   if (last_valid < 0)
       return rates_total;
 
-// Clear region without full window
-   for(int i = rates_total - 1; i > last_valid; --i)
-     {
+   // Clear region without full window
+   for (int i = rates_total - 1; i > last_valid; --i)
+   {
       MarkerBuffer[i] = EMPTY_VALUE;
       ScoreBuffer[i] = EMPTY_VALUE;
       FlagBuffer[i] = 0.0;
       SlopeNormBuffer[i] = EMPTY_VALUE;
       R2Buffer[i] = EMPTY_VALUE;
-     }
+   }
 
    const double slope_th = GetSlopeThreshold();
    const double wSlope = Clamp01(InpScoreSlopeWeight);
    const double wR2 = 1.0 - wSlope;
 
-// 1) Compute LR + R2 + score + flag
-   for(int i = last_valid; i >= 0; --i)
-     {
+   // 1) Compute LR + R2 + score + flag
+   for (int i = last_valid; i >= 0; --i)
+   {
       double b_norm = 0.0;
       double r2 = 0.0;
-      if(!ComputeLRMetricsAtIndex(i, window, close, eps, b_norm, r2))
-        {
+      double er = 0.0;
+      if (!ComputeLRMetricsAtIndex(i, window, close, eps, b_norm, r2, er))
+      {
          SlopeNormBuffer[i] = EMPTY_VALUE;
          R2Buffer[i] = EMPTY_VALUE;
          FlagBuffer[i] = 0.0;
          ScoreBuffer[i] = EMPTY_VALUE;
          MarkerBuffer[i] = EMPTY_VALUE;
          continue;
-        }
+      }
 
       SlopeNormBuffer[i] = b_norm;
       R2Buffer[i] = r2;
@@ -1200,95 +1308,96 @@ int OnCalculate(const int rates_total,
       ScoreBuffer[i] = score;
 
       // Arrows
-      if(InpKeepArrows && lateral)
-        {
+      if (InpKeepArrows && lateral)
+      {
          double offset = (high[i] - low[i]) * 0.25;
-         if(offset <= eps)
+         if (offset <= eps)
             offset = MathMax(_Point * 10.0, MathAbs(close[i]) * 0.0001);
          MarkerBuffer[i] = high[i] + offset;
-        }
+      }
       else
-        {
+      {
          MarkerBuffer[i] = EMPTY_VALUE;
-        }
-     }
+      }
+   }
 
-// 2) Zones (MOST RECENT -> OLDEST)
+   // 2) Zones (MOST RECENT -> OLDEST)
    DeleteByPrefix("LZ_RECT_");
    DeleteByPrefix("LZ_MID_");
-// (projection lines will be drawn later, based on the most recent zone)
-// we do not clear here to avoid unnecessary flicker; DrawProjectionFromZone clears by prefix.
+   // (projection lines will be drawn later, based on the most recent zone)
+   // we do not clear here to avoid unnecessary flicker; DrawProjectionFromZone clears by prefix.
 
    ZoneInfo lastActive;
    lastActive.valid = false;
    ZoneInfo lastBroken;
    lastBroken.valid = false;
    double lastActiveNetClose = 0.0;
+   double lastBrokenNetClose = 0.0;
 
    int zoneCount = 0;
    const double touchMargin = MathMax(0, InpZoneEnergyTouchMarginPoints) * _Point;
 
    int i = 0; // most recent -> oldest
-   while(i <= last_valid)
-     {
-      if(FlagBuffer[i] == 1.0)
-        {
+   while (i <= last_valid)
+   {
+      if (FlagBuffer[i] == 1.0)
+      {
          int start_recent = i; // most recent
          int gap = 0;
 
-         while(i <= last_valid)
-           {
-            if(FlagBuffer[i] == 1.0)
+         while (i <= last_valid)
+         {
+            if (FlagBuffer[i] == 1.0)
                gap = 0;
             else
                gap++;
 
-            if(gap > InpGapTolerance)
+            if (gap > InpGapTolerance)
                break;
             i++;
-           }
+         }
 
          int end_old = i - gap; // oldest
          int length = end_old - start_recent + 1;
 
-         if(length >= InpMinZoneBars)
-           {
+         if (length >= InpMinZoneBars)
+         {
             double top = -DBL_MAX;
             double bottom = DBL_MAX;
             double sumScore = 0.0;
             int cntScore = 0;
             double path = 0.0;
 
-            for(int j = start_recent; j <= end_old; ++j)
-              {
-               if(high[j] > top)
+            for (int j = start_recent; j <= end_old; ++j)
+            {
+               if (high[j] > top)
                   top = high[j];
-               if(low[j] < bottom)
+               if (low[j] < bottom)
                   bottom = low[j];
 
-               if(j < end_old)
+               if (j < end_old)
                   path += MathAbs(close[j] - close[j + 1]);
 
                double sc = ScoreBuffer[j];
-               if(sc != EMPTY_VALUE)
-                 {
+               if (sc != EMPTY_VALUE)
+               {
                   sumScore += sc;
                   cntScore++;
-                 }
-              }
+               }
+            }
 
             int touchTop = 0;
             int touchBot = 0;
-            if(InpEnableZoneEnergy)
-              {
-               for(int j = start_recent; j <= end_old; ++j)
-                 {
-                  if(high[j] >= top - touchMargin)
+            if (InpEnableZoneEnergy)
+            {
+               for (int j = start_recent; j <= end_old; ++j)
+               {
+                  if (high[j] >= top - touchMargin)
                      touchTop++;
-                  if(low[j] <= bottom + touchMargin)
+                  if (low[j] <= bottom + touchMargin)
                      touchBot++;
-                 }
-              }
+               }
+            }
 
             ZoneInfo z;
             z.valid = true;
@@ -1308,219 +1417,250 @@ int OnCalculate(const int rates_total,
             // state/breakout and extension (to the right: lower indexes)
             z.state = Z_ACTIVE;
 
-            if(InpExtendUntilBreak)
-              {
+            if (InpExtendUntilBreak)
+            {
                const double margin = InpBreakMarginPoints * _Point;
 
-               for(int j = start_recent - 1; j >= 0; --j)
-                 {
-                  if(close[j] > top + margin)
-                    {
+               for (int j = start_recent - 1; j >= 0; --j)
+               {
+                  if (close[j] > top + margin)
+                  {
                      z.state = Z_BREAK_UP;
                      z.t_right = time[j];
                      break;
-                    }
-                  if(close[j] < bottom - margin)
-                    {
+                  }
+                  if (close[j] < bottom - margin)
+                  {
                      z.state = Z_BREAK_DOWN;
                      z.t_right = time[j];
                      break;
-                    }
-                 }
-              }
+                  }
+               }
+            }
 
             // "Only last active + last broken" mode (most recent)
-            if(InpOnlyLastActiveAndLastBroken)
-              {
-               if(!lastActive.valid && z.state == Z_ACTIVE)
-                 {
+            if (InpOnlyLastActiveAndLastBroken)
+            {
+               if (!lastActive.valid && z.state == Z_ACTIVE)
+               {
                   lastActive = z;
                   lastActiveNetClose = MathAbs(close[start_recent] - close[end_old]);
-                 }
+               }
 
-               if(!lastBroken.valid && z.state != Z_ACTIVE)
+               if (!lastBroken.valid && z.state != Z_ACTIVE)
+               {
                   lastBroken = z;
+                  lastBrokenNetClose = MathAbs(close[start_recent] - close[end_old]);
+               }
 
-               if(lastActive.valid && lastBroken.valid)
+               if (lastActive.valid && lastBroken.valid)
                   break;
-              }
+            }
             else
-              {
+            {
                DrawZone(zoneCount, z);
                zoneCount++;
-               if(zoneCount >= InpMaxZonesOnChart)
+               if (zoneCount >= InpMaxZonesOnChart)
                   break;
-              }
+            }
 
-            if(InpDebug)
+            if (InpDebug)
                PrintFormat("[LZ] len=%d avgScore=%.2f state=%d", z.length, z.avgScore, (int)z.state);
-           }
-        }
+         }
+      }
       else
-        {
+      {
          i++;
-        }
-     }
+      }
+   }
 
-// Final render in active mode + PROJECTION LINES FROM THE MOST RECENT ZONE
-   if(InpOnlyLastActiveAndLastBroken)
-     {
+   // Final render in active mode + PROJECTION LINES FROM THE MOST RECENT ZONE
+   if (InpOnlyLastActiveAndLastBroken)
+   {
       int idx = 0;
-      if(lastActive.valid)
+      if (lastActive.valid)
          DrawZone(idx++, lastActive);
-      if(lastBroken.valid)
+      if (lastBroken.valid)
          DrawZone(idx++, lastBroken);
 
       // Most "useful" zone for projection: prioritize active, otherwise broken
-      if(lastActive.valid)
+      if (lastActive.valid)
          DrawProjectionFromZone(lastActive);
+      else if (lastBroken.valid)
+         DrawProjectionFromZone(lastBroken);
       else
-         if(lastBroken.valid)
-            DrawProjectionFromZone(lastBroken);
-         else
-           {
-            // If there is no zone, remove old lines
-            DeleteByPrefix("LZ_LVL_");
-           }
-     }
+      {
+         // If there is no zone, remove old lines
+         DeleteByPrefix("LZ_LVL_");
+      }
+   }
    else
-     {
+   {
       // If drawing multiple zones, we use the MOST RECENT detected:
       // since the loop is recent->old, the first drawn zone is the most recent.
       // For simplicity: here we remove lines (or you can implement storing the first zone).
       DeleteByPrefix("LZ_LVL_");
-     }
+   }
 
-// 2.1) Zone Energy (price stats only) - O(1) after identifying lastActive
+   // 2.1) Zone Energy (price stats only) - O(1) after identifying lastActive
    bool hasZoneEnergy = false;
    double zone_energy01 = 0.0;
    int zone_energy_pct = 0;
-   if(InpEnableZoneEnergy && lastActive.valid)
-     {
-      double wLen = MathMax(0.0, InpZoneEnergyWeightLen);
-      double wComp = MathMax(0.0, InpZoneEnergyWeightComp);
-      double wChop = MathMax(0.0, InpZoneEnergyWeightChop);
-      double wTouch = MathMax(0.0, InpZoneEnergyWeightTouch);
-      double wSum = wLen + wComp + wChop + wTouch;
-      if(wSum <= eps)
-        {
-         wLen = 1.0;
-         wComp = 1.0;
-         wChop = 1.0;
-         wTouch = 1.0;
-         wSum = 4.0;
-        }
+   if (lastActive.valid)
+      hasZoneEnergy = ComputeZoneEnergyFromZone(lastActive, lastActiveNetClose, eps, zone_energy01, zone_energy_pct);
 
-      const double nLen = wLen / wSum;
-      const double nComp = wComp / wSum;
-      const double nChop = wChop / wSum;
-      const double nTouch = wTouch / wSum;
+   bool hasBrokenZoneEnergy = false;
+   double broken_zone_energy01 = 0.0;
+   int broken_zone_energy_pct = 0;
+   if (lastBroken.valid)
+      hasBrokenZoneEnergy = ComputeZoneEnergyFromZone(lastBroken, lastBrokenNetClose, eps, broken_zone_energy01, broken_zone_energy_pct);
 
-      const int lenScale = MathMax(1, InpZoneEnergyLenScale);
-      const int touchScale = MathMax(1, InpZoneEnergyTouchScale);
-      const double len01 = Clamp01((double)lastActive.length / (double)lenScale);
-      const double range = MathMax(0.0, lastActive.top - lastActive.bottom);
-      const double path = MathMax(lastActive.path, eps);
-      const double compression01 = Clamp01(1.0 - (range / path));
-      const double er_zone = Clamp01(lastActiveNetClose / path);
-      const double chop01 = Clamp01(1.0 - er_zone);
-      const int touches = lastActive.touchTop + lastActive.touchBot;
-      const double touches01 = Clamp01((double)touches / (double)touchScale);
-
-      zone_energy01 = Clamp01(nLen * len01 + nComp * compression01 + nChop * chop01 + nTouch * touches01);
-      zone_energy_pct = ClampInt((int)MathRound(zone_energy01 * 100.0), 0, 100);
-      hasZoneEnergy = true;
-     }
-
-// 3) TrendStrength + HUD
+   // 3) TrendStrength + HUD
    ObjectDelete(0, "LZ_TREND_BG"); // legacy: remove old background if it exists
 
-   const double b_norm0 = SlopeNormBuffer[0];
-   const double r2_0 = Clamp01(R2Buffer[0]);
-   const double er_0 = ComputeEfficiencyRatio(close, window);
+   double b_norm0 = SlopeNormBuffer[0];
+   double r2_0 = Clamp01(R2Buffer[0]);
+   double er_0 = 0.0;
+   double metrics_b_norm0 = 0.0;
+   double metrics_r2_0 = 0.0;
+   if (ComputeLRMetricsAtIndex(0, window, close, eps, metrics_b_norm0, metrics_r2_0, er_0))
+   {
+      b_norm0 = metrics_b_norm0;
+      r2_0 = Clamp01(metrics_r2_0);
+   }
    const double slope01_0 = Clamp01((slope_th > 0.0) ? (MathAbs(b_norm0) / slope_th) : 0.0);
-   const double trend_strength = ComputeTrendStrength(b_norm0, slope_th, r2_0, er_0);
-   const int trend_strength_pct = ClampInt((int)MathRound(Clamp01(trend_strength) * 100.0), 0, 100);
+   const double trend_strength = ComputeTrendStrengthFromMetrics(b_norm0, r2_0, er_0, slope_th);
 
    int trend_dir = 0;
-   if(b_norm0 > eps)
+   if (b_norm0 > eps)
       trend_dir = 1;
-   else
-      if(b_norm0 < -eps)
-         trend_dir = -1;
+   else if (b_norm0 < -eps)
+      trend_dir = -1;
 
    double micro_b_norm = 0.0;
    double micro_r2 = 0.0;
+   double micro_er = 0.0;
    int micro_dir = 0;
    const int micro_window = MathMax(2, InpMicrotrendWindow);
-   if(ComputeLRMetricsAtIndex(0, micro_window, close, eps, micro_b_norm, micro_r2))
-     {
-      if(micro_b_norm > eps)
+   if (ComputeLRMetricsAtIndex(0, micro_window, close, eps, micro_b_norm, micro_r2, micro_er))
+   {
+      if (micro_b_norm > eps)
          micro_dir = 1;
-      else
-         if(micro_b_norm < -eps)
-            micro_dir = -1;
-     }
+      else if (micro_b_norm < -eps)
+         micro_dir = -1;
+   }
 
    ENUM_REGIME_STATE regime = REGIME_MIXED;
-   if(FlagBuffer[0] == 1.0 || lastActive.valid)
+   if (FlagBuffer[0] == 1.0 || lastActive.valid)
       regime = REGIME_RANGE;
-   else
-      if(trend_strength >= Clamp01(InpTrendThreshold))
-         regime = REGIME_TREND;
+   else if (trend_strength >= Clamp01(InpTrendThreshold))
+      regime = REGIME_TREND;
 
    double hud_step = -1.0;
+   double hud_mid = 0.0;
    string hud_step_source = "N/A";
-   if(lastActive.valid)
-     {
+   if (lastActive.valid)
+   {
       hud_step = lastActive.top - lastActive.bottom;
+      hud_mid = lastActive.mid;
       hud_step_source = "ACTIVE";
-     }
-   else
-      if(lastBroken.valid)
-        {
-         hud_step = lastBroken.top - lastBroken.bottom;
-         hud_step_source = "LAST BROKEN";
-        }
+   }
+   else if (lastBroken.valid)
+   {
+      hud_step = lastBroken.top - lastBroken.bottom;
+      hud_mid = lastBroken.mid;
+      hud_step_source = "LAST BROKEN";
+   }
 
-   if(InpEnableTrendHUD)
-      RenderTrendHUD(regime, trend_dir, micro_dir, trend_strength, hud_step, hud_step_source, r2_0, er_0, slope01_0,
+   double short_b_norm = 0.0;
+   double short_r2 = 0.0;
+   double short_er = 0.0;
+   double trend_strength_short = 0.0;
+   bool hasShortMetrics = false;
+   const int exhaust_window = MathMax(2, InpExhaustLookback);
+   if (ComputeLRMetricsAtIndex(0, exhaust_window, close, eps, short_b_norm, short_r2, short_er))
+   {
+      trend_strength_short = ComputeTrendStrengthFromMetrics(short_b_norm, short_r2, short_er, slope_th);
+      hasShortMetrics = true;
+   }
+
+   bool canComputeTrendExhaustion = false;
+   double trend_exhaustion01 = 0.0;
+   int trend_exhaustion_pct = 0;
+   if (hud_step > eps && hasShortMetrics)
+   {
+      const double distanceSteps = MathAbs(close[0] - hud_mid) / MathMax(hud_step, eps);
+      const double distance01 = Clamp01(distanceSteps / MathMax(InpExhaustDistanceScale, eps));
+      const double strengthDrop01 = Clamp01(MathMax(0.0, trend_strength - trend_strength_short));
+      const double noise01 = Clamp01(1.0 - short_er);
+
+      double wDist = InpExhaustWeightDistance;
+      double wStrength = InpExhaustWeightStrength;
+      double wNoise = InpExhaustWeightNoise;
+      NormalizeWeights3(wDist, wStrength, wNoise);
+
+      trend_exhaustion01 = Clamp01(wDist * distance01 + wStrength * strengthDrop01 + wNoise * noise01);
+      trend_exhaustion_pct = ClampInt((int)MathRound(trend_exhaustion01 * 100.0), 0, 100);
+      canComputeTrendExhaustion = true;
+   }
+
+   bool canComputeBreakQuality = false;
+   int break_quality_pct = 0;
+   if (lastBroken.valid)
+   {
+      const double brokenStep = MathMax(lastBroken.top - lastBroken.bottom, 0.0);
+      int break_dir = 0;
+      if (lastBroken.state == Z_BREAK_UP)
+         break_dir = 1;
+      else if (lastBroken.state == Z_BREAK_DOWN)
+         break_dir = -1;
+
+      if (brokenStep > eps && break_dir != 0)
+      {
+         const double breakStrength01 = Clamp01(trend_strength);
+         const double breakEnergy01 = (hasBrokenZoneEnergy ? broken_zone_energy01 : 0.0);
+         double penetration = 0.0;
+         if (break_dir > 0)
+            penetration = close[0] - lastBroken.top;
+         else
+            penetration = lastBroken.bottom - close[0];
+         const double penetration01 = Clamp01(penetration / MathMax(brokenStep, eps));
+         const double freshness01 = (canComputeTrendExhaustion ? Clamp01(1.0 - trend_exhaustion01) : 1.0);
+
+         double wStrength = InpBreakQualityWeightStrength;
+         double wEnergy = InpBreakQualityWeightEnergy;
+         double wPenetr = InpBreakQualityWeightPenetr;
+         double wFresh = InpBreakQualityWeightFresh;
+         NormalizeWeights4(wStrength, wEnergy, wPenetr, wFresh);
+
+         const double break_quality01 = Clamp01(wStrength * breakStrength01 +
+                                                wEnergy * breakEnergy01 +
+                                                wPenetr * penetration01 +
+                                                wFresh * freshness01);
+         break_quality_pct = ClampInt((int)MathRound(break_quality01 * 100.0), 0, 100);
+         canComputeBreakQuality = true;
+      }
+   }
+
+   if (InpEnableTrendHUD)
+      RenderTrendHUD(regime, trend_dir, micro_dir, trend_strength,
+                     (InpEnableTrendExhaustion && canComputeTrendExhaustion), trend_exhaustion_pct,
+                     (InpEnableBreakQuality && canComputeBreakQuality), break_quality_pct,
+                     hud_step, hud_step_source, r2_0, er_0, slope01_0,
                      hasZoneEnergy, zone_energy_pct);
    else
       DeleteTrendHUD();
 
-   if(InpEnableBreakAlerts && lastBroken.valid)
-     {
-      int break_dir = 0;
-      if(lastBroken.state == Z_BREAK_UP)
-         break_dir = 1;
-      else
-         if(lastBroken.state == Z_BREAK_DOWN)
-            break_dir = -1;
-
-      if(break_dir != 0)
-        {
-         const long alert_hash = BuildZoneAlertHash(lastBroken);
-         const bool should_check_alert = (alert_hash != g_last_alert_zone_hash || break_dir != g_last_alert_dir);
-         if(should_check_alert && trend_strength_pct >= ClampInt(InpAlertMinStrength, 0, 100))
-           {
-            FireBreakAlert(lastBroken, break_dir, trend_strength_pct, zone_energy_pct, hasZoneEnergy);
-            g_last_alert_zone_hash = alert_hash;
-            g_last_alert_dir = break_dir;
-           }
-        }
-     }
-
    return rates_total;
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
-  {
+{
    DeleteTrendHUD();
-  }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1529,41 +1669,41 @@ void OnChartEvent(const int id,
                   const long &lparam,
                   const double &dparam,
                   const string &sparam)
-  {
-   if(!InpEnableTrendHUD)
+{
+   if (!InpEnableTrendHUD)
       return;
 
    const int panelW = HUDPanelWidth();
    const int panelH = HUDPanelHeight();
 
-   if(id == CHARTEVENT_CHART_CHANGE)
-     {
-      if(g_hud_user_moved)
+   if (id == CHARTEVENT_CHART_CHANGE)
+   {
+      if (g_hud_user_moved)
          SyncHUDPositionFromObject();
       else
-        {
+      {
          g_hud_x = HUDDefaultX(panelW);
          g_hud_y = HUDDefaultY();
-        }
+      }
 
       g_hud_is_dragging = false;
       ClampHUDPosition(panelW, panelH);
       ApplyHUDPositionToObjects();
       ChartRedraw(0);
       return;
-     }
+   }
 
-   if(!InpHUDDraggable)
-     {
+   if (!InpHUDDraggable)
+   {
       g_hud_is_dragging = false;
       return;
-     }
+   }
 
-   if(sparam != "LZ_HUD_BG")
+   if (sparam != "LZ_HUD_BG")
       return;
 
-   if(id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_CHANGE)
-     {
+   if (id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_CHANGE)
+   {
       const int prevX = g_hud_x;
       const int prevY = g_hud_y;
       g_hud_is_dragging = (id == CHARTEVENT_OBJECT_DRAG);
@@ -1574,9 +1714,9 @@ void OnChartEvent(const int id,
       ClampHUDPosition(panelW, panelH);
       ShiftHUDContentByDelta(draggedX - prevX, draggedY - prevY);
       ApplyHUDPositionToObjects();
-      if(id == CHARTEVENT_OBJECT_CHANGE)
+      if (id == CHARTEVENT_OBJECT_CHANGE)
          g_hud_is_dragging = false;
       ChartRedraw(0);
-     }
-  }
+   }
+}
 //+------------------------------------------------------------------+
