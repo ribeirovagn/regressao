@@ -1,20 +1,30 @@
 # MarketRegime Zones (v2.14)
 
-MQL5 indicator that classifies the current market regime from price-only statistics, detects ranging zones from lateral clusters, projects horizontal levels, and renders a compact draggable HUD with structural bias, microtrend, strength, trend exhaustion, break quality, step source, and zone energy.
+A statistical, price-only market regime engine for MetaTrader 5.
+
+MarketRegime Zones is an MQL5 indicator that interprets market structure through price-only statistics instead of traditional indicators. It detects ranges, breakouts, structural bias, microtrend, trend strength, exhaustion, and breakout quality through projected zones and a compact real-time HUD, making it useful both for discretionary chart reading and for regime-based research workflows.
 
 ![MarketRegime Zones on XAUUSD M1](assets/xauusd_m1.png)
+
+## Highlights
+
+- Price-only statistical analysis
+- Range and breakout zone detection
+- Trend strength, exhaustion, and break quality
+- Horizontal projection levels from recent zone structure
+- Compact draggable HUD for real-time interpretation
+- Built for discretionary trading and future ML-oriented workflows
+
+## Why it's different
+
+Most MT5 indicators summarize price through moving averages, oscillators, or momentum derivatives. MarketRegime Zones does not. It works from regression, efficiency, clustering, compression, and structural zone behavior to classify the market as a regime state instead of a single signal line. The result is a more structured decision framework for reading whether price is ranging, trending, exhausting, or breaking with quality.
 
 ## Feature Summary
 
 - Detects ranging with an objective rule: `|slope_norm| < threshold` and `R2 < InpR2Threshold`.
-- Computes linear regression chronologically from the oldest candle in the window to the newest candle, even though MT5 arrays are handled in series mode.
-- Builds zones from clusters of ranging candles with three states:
-  - active (`Z_ACTIVE`)
-  - broken upward (`Z_BREAK_UP`)
-  - broken downward (`Z_BREAK_DOWN`)
-- Supports two rendering modes:
-  - last active zone + last broken zone
-  - multi-zone mode limited by `InpMaxZonesOnChart`
+- Computes linear regression chronologically from the oldest candle in the window to the newest candle, even though MT5 arrays run in series mode.
+- Builds zones from clusters of ranging candles with three states: `Z_ACTIVE`, `Z_BREAK_UP`, and `Z_BREAK_DOWN`.
+- Supports two rendering modes: last active zone plus last broken zone, or multi-zone rendering limited by `InpMaxZonesOnChart`.
 - Renders zones with duration-based transparency and border width driven by average range score.
 - Optionally extends a zone until breakout and can draw the zone midline.
 - Projects horizontal levels from the most relevant recent zone in active-mode rendering.
@@ -26,45 +36,33 @@ MQL5 indicator that classifies the current market regime from price-only statist
 - Calculates `ZONE ENERGY` only from price statistics: duration, compression, chop, and edge touches.
 - Throttles `OnCalculate()` with `InpOnCalculateDelaySeconds` to reduce redraw frequency if needed.
 
+## HUD Interpretation
+
+The HUD is designed to be read in a few seconds, not treated as a full control panel.
+
+| HUD Field | Quick Interpretation |
+| --- | --- |
+| `REGIME` | Current structural state: `RANGE`, `TREND`, or `MIXED`. |
+| `BIAS` | Main directional bias from the primary regression window. |
+| `MICROTREND` | Shorter-window directional read for local flow. |
+| `STRENGTH` | Composite trend quality built from slope, `R2`, and `ER`. |
+| `TREND EXHAUSTION` | How stretched or tired the current move looks relative to zone structure and short-term deterioration. |
+| `BREAK QUALITY` | How credible the last breakout is based on strength, penetration, zone energy, and freshness. |
+| `STEP` | Current zone height in price terms: `top - bottom`. |
+| `STEP SRC` | Whether the current `STEP` comes from the active zone, the last broken zone, or is unavailable. |
+| `ZONE ENERGY` | Statistical quality of the active zone based on duration, compression, chop, and edge interaction. |
+
 ## Quick Start
 
 1. Copy `MarketRegime.mq5` to `MQL5/Indicators/` and compile it in MetaEditor.
 2. Attach the indicator to the target chart in MT5.
-3. Tune regime sensitivity first:
-
-- `InpWindow`
-- `InpSlopeNormMode`
-- `InpSlopeThresholdMean` or `InpSlopeThresholdStd`
-- `InpR2Threshold`
-- `InpScoreSlopeWeight`
-
-4. Tune zone formation and breakout extension:
-
-- `InpMinZoneBars`
-- `InpGapTolerance`
-- `InpExtendUntilBreak`
-- `InpBreakMarginPoints`
-- `InpOnlyLastActiveAndLastBroken`
-
-5. Tune projection and HUD behavior:
-
-- `InpDrawProjectionLines`
-- `InpProjectionCount`
-- `InpEnableTrendHUD`
-- `InpShowBiasAndMicrotrend`
-- `InpShowTrendDetails`
-- `InpMicrotrendWindow`
-
-6. Tune the derived metrics if you use them in discretionary decisions:
-
-- `InpTrendWeightSlope`
-- `InpTrendWeightR2`
-- `InpTrendWeightER`
-- `InpExhaust*`
-- `InpBreakQuality*`
-- `InpZoneEnergy*`
-
+3. Tune regime sensitivity first with `InpWindow`, `InpSlopeNormMode`, `InpSlopeThresholdMean`, `InpSlopeThresholdStd`, `InpR2Threshold`, and `InpScoreSlopeWeight`.
+4. Tune zone formation and breakout extension with `InpMinZoneBars`, `InpGapTolerance`, `InpExtendUntilBreak`, `InpBreakMarginPoints`, and `InpOnlyLastActiveAndLastBroken`.
+5. Tune projection and HUD behavior with `InpDrawProjectionLines`, `InpProjectionCount`, `InpEnableTrendHUD`, `InpShowBiasAndMicrotrend`, `InpShowTrendDetails`, and `InpMicrotrendWindow`.
+6. Tune the derived metrics if you use them in discretionary decisions: `InpTrendWeight*`, `InpExhaust*`, `InpBreakQuality*`, and `InpZoneEnergy*`.
 7. Use `InpDebug` for Journal diagnostics and `InpOnCalculateDelaySeconds` to limit recomputation frequency.
+
+This repository tracks source code only. Compile the indicator locally in MetaEditor when you need the `.ex5` artifact.
 
 ## Regime and HUD Behavior
 
@@ -221,9 +219,24 @@ Projection behavior:
 | `InpDebug` | `bool` | `false` | Enables debug logging in the MT5 Journal. |
 | `InpOnCalculateDelaySeconds` | `int` | `5` | Minimum delay between `OnCalculate()` executions; `0` disables throttling. |
 
+## Project Structure
+
+- `MarketRegime.mq5`: indicator entry point and orchestration.
+- `Core/`: shared types and helpers.
+- `HUD/`: layout, rendering, and drag behavior for the on-chart HUD.
+- `Stats/`: price-only derived metrics such as trend strength, exhaustion, break quality, and zone energy.
+- `Zones/`: range detection, projection logic, and zone rendering.
+
 ## Notes
 
 - The indicator uses only price statistics. It does not depend on moving averages, oscillators, or other classic indicators.
 - In `OnInit()`, the code calls `ObjectsDeleteAll(0, -1, -1)`, which clears all objects on the current chart before creating its own HUD and drawing objects.
 - The HUD remains draggable and automatically adjusts its height to the number of visible lines.
 - The indicator short name shown by MT5 is `MarketRegime Zones (v2.14)`.
+
+## Roadmap / Next Steps
+
+- Dataset export for ML-oriented regime labeling and analysis
+- EA integration hooks for state-aware execution workflows
+- Multi-window or multi-scale regime analysis
+- State-based automation experiments built on the existing regime model
