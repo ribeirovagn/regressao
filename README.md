@@ -32,7 +32,7 @@ Most MT5 indicators summarize price through moving averages, oscillators, or mom
 - Renders zones with duration-based transparency and border width driven by average range score.
 - Optionally extends a zone until breakout and can draw the zone midline.
 - Projects horizontal levels from the most relevant recent zone in active-mode rendering.
-- Shows a compact premium HUD with a modern header, four-column top grid, two-column metrics grid, strength bar, and footer details for `R2 / ER / S`.
+- Shows a compact premium HUD with a modern header, four-column top grid, an inline two-column metrics grid with adaptive width, a strength bar, and footer details for `R2 / ER / S`.
 - Keeps the dashboard layout stable even when some fields are disabled, using `N/A` instead of collapsing sections.
 - Calculates `TREND STRENGTH` from normalized slope, `R2`, and Efficiency Ratio (`ER`).
 - Calculates `TREND EXHAUSTION` from distance to zone mid, short-window strength drop, and short-window noise.
@@ -42,7 +42,7 @@ Most MT5 indicators summarize price through moving averages, oscillators, or mom
 
 ## HUD Interpretation
 
-The HUD is designed to be read in a few seconds, not treated as a full control panel. The current layout is a compact premium card tuned for FHD multi-chart setups: header, top grid, middle metrics grid, and footer details.
+The HUD is designed to be read in a few seconds, not treated as a full control panel. The current layout is a compact premium card tuned for FHD multi-chart setups: header, top grid, a two-column middle metrics grid with inline `LABEL: VALUE` rows, and footer details. The renderer expands the panel width when the middle metrics need more space.
 
 | HUD Field | Quick Interpretation |
 | --- | --- |
@@ -172,7 +172,7 @@ Projection behavior:
 | `InpHUDXDefault` | `int` | `12` | Default HUD X offset. |
 | `InpHUDYDefault` | `int` | `12` | Default HUD Y offset. |
 | `InpHUDFontSize` | `int` | `8` | Base HUD font size for the compact dashboard typography. |
-| `InpHUDWidth` | `int` | `384` | Requested HUD width; the renderer scales legacy larger values down and keeps a compact 384 px minimum footprint. |
+| `InpHUDWidth` | `int` | `384` | Requested HUD width; the renderer scales legacy larger values down, keeps a compact 384 px minimum footprint, and can widen the card when middle-grid content needs more room. |
 | `InpHUDHeight` | `int` | `192` | Requested HUD height; the renderer scales legacy larger values down and keeps a compact 192 px minimum footprint. |
 | `InpHUDAlphaMin` | `int` | `170` | Minimum HUD alpha (`0..255`). |
 | `InpHUDAlphaMax` | `int` | `255` | Maximum HUD alpha (`0..255`). |

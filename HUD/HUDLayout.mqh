@@ -1,17 +1,18 @@
 #ifndef MARKETREGIME_HUD_HUDLAYOUT_MQH
 #define MARKETREGIME_HUD_HUDLAYOUT_MQH
 
-const int HUD_PANEL_MIN_WIDTH = 620;
-const int HUD_TOP_PADDING = 18;
-const int HUD_SIDE_PADDING = 22;
-const int HUD_BOTTOM_PADDING = 17;
-const int HUD_HEADER_HEIGHT = 52;
-const int HUD_TOP_GRID_HEIGHT = 78;
-const int HUD_MIDDLE_GRID_BASE_HEIGHT = 72;
-const int HUD_FOOTER_HEIGHT = 24;
-const int HUD_SECTION_GAP = 8;
+const double HUD_SCALE_FACTOR = 0.62;
+const int HUD_PANEL_MIN_WIDTH = 384;
+const int HUD_TOP_PADDING = 12;
+const int HUD_SIDE_PADDING = 14;
+const int HUD_BOTTOM_PADDING = 10;
+const int HUD_HEADER_HEIGHT = 33;
+const int HUD_TOP_GRID_HEIGHT = 50;
+const int HUD_MIDDLE_GRID_BASE_HEIGHT = 44;
+const int HUD_FOOTER_HEIGHT = 15;
+const int HUD_SECTION_GAP = 5;
 const int HUD_DIVIDER_THICKNESS = 1;
-const int HUD_OBJECT_COUNT = 42;
+const int HUD_OBJECT_COUNT = 37;
 
 int HUDMinimumPanelHeight()
 {
@@ -31,19 +32,38 @@ int HUDMinimumPanelHeight()
           HUD_BOTTOM_PADDING;
 }
 
+int HUDBasePanelWidth()
+{
+   const int requestedW = MathMax(0, InpHUDWidth);
+   return MathMax(HUD_PANEL_MIN_WIDTH, (int)MathRound((double)requestedW * HUD_SCALE_FACTOR));
+}
+
 int HUDPanelWidth()
 {
-   return MathMax(MathMax(0, InpHUDWidth), HUD_PANEL_MIN_WIDTH);
+   return MathMax(HUDBasePanelWidth(), g_hud_panel_w);
 }
 
 int HUDBarHeight()
 {
-   return MathMax(10, MathMin(MathMax(2, InpBarHeight), 12));
+   const int scaledH = (int)MathRound((double)MathMax(0, InpBarHeight) * HUD_SCALE_FACTOR);
+   return MathMax(6, MathMin(MathMax(2, scaledH), 8));
+}
+
+int HUDBasePanelHeight()
+{
+   const int requestedH = MathMax(0, InpHUDHeight);
+   return MathMax(HUDMinimumPanelHeight(), (int)MathRound((double)requestedH * HUD_SCALE_FACTOR));
 }
 
 int HUDPanelHeight()
 {
-   return MathMax(MathMax(0, InpHUDHeight), HUDMinimumPanelHeight());
+   return MathMax(HUDBasePanelHeight(), g_hud_panel_h);
+}
+
+void HUDRememberPanelSize(const int panelW, const int panelH)
+{
+   g_hud_panel_w = MathMax(HUDBasePanelWidth(), panelW);
+   g_hud_panel_h = MathMax(HUDBasePanelHeight(), panelH);
 }
 
 int HUDDefaultX(const int panelW)
@@ -90,21 +110,16 @@ string HUDObjectName(const int idx)
       case 24: return "LZ_HUD_VAL_STRENGTH";
       case 25: return "LZ_HUD_BAR_BG";
       case 26: return "LZ_HUD_BAR_FILL";
-      case 27: return "LZ_HUD_LBL_EXHAUST";
-      case 28: return "LZ_HUD_VAL_EXHAUST";
-      case 29: return "LZ_HUD_LBL_BREAKQ";
-      case 30: return "LZ_HUD_VAL_BREAKQ";
-      case 31: return "LZ_HUD_LBL_STEP";
-      case 32: return "LZ_HUD_VAL_STEP";
-      case 33: return "LZ_HUD_LBL_STEPSRC";
-      case 34: return "LZ_HUD_VAL_STEPSRC";
-      case 35: return "LZ_HUD_LBL_ENERGY";
-      case 36: return "LZ_HUD_VAL_ENERGY";
-      case 37: return "LZ_HUD_DETAILS_ICON";
-      case 38: return "LZ_HUD_DETAILS_TXT";
-      case 39: return "LZ_HUD_DETAILS_R2";
-      case 40: return "LZ_HUD_DETAILS_ER";
-      case 41: return "LZ_HUD_DETAILS_S";
+      case 27: return "LZ_HUD_ROW_EXHAUST";
+      case 28: return "LZ_HUD_ROW_BREAKQ";
+      case 29: return "LZ_HUD_ROW_STEP";
+      case 30: return "LZ_HUD_ROW_STEPSRC";
+      case 31: return "LZ_HUD_ROW_ENERGY";
+      case 32: return "LZ_HUD_DETAILS_ICON";
+      case 33: return "LZ_HUD_DETAILS_TXT";
+      case 34: return "LZ_HUD_DETAILS_R2";
+      case 35: return "LZ_HUD_DETAILS_ER";
+      case 36: return "LZ_HUD_DETAILS_S";
    }
 
    return "";

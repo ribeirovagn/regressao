@@ -131,6 +131,57 @@ color HUDStepSourceColor(const string stepSource,
    return accentColor;
 }
 
+string HUDMetricLineText(const string label, const string value)
+{
+   return label + ": " + value;
+}
+
+int MeasureHUDTextWidth(const string text,
+                        const string font,
+                        const int fontSize)
+{
+   if (fontSize <= 0 || StringLen(text) == 0)
+      return 0;
+
+   uint textW = 0;
+   uint textH = 0;
+   const int logicalFontSize = -10 * MathMax(1, fontSize);
+   if (TextSetFont(font, logicalFontSize, 0) && TextGetSize(text, textW, textH))
+      return (int)textW;
+
+   return StringLen(text) * MathMax(6, fontSize + 2);
+}
+
+int HUDMetricColumnWidth(const string row1,
+                         const string row2,
+                         const string row3,
+                         const int metricFontSize)
+{
+   const int measure1 = MeasureHUDTextWidth(row1, "Segoe UI Semibold", metricFontSize);
+   const int measure2 = MeasureHUDTextWidth(row2, "Segoe UI Semibold", metricFontSize);
+   const int measure3 = MeasureHUDTextWidth(row3, "Segoe UI Semibold", metricFontSize);
+   return MathMax(measure1, MathMax(measure2, measure3)) + 8;
+}
+
+int HUDResolvePanelWidth(const string exhaustText,
+                         const string breakText,
+                         const string stepText,
+                         const string stepSourceText,
+                         const string energyText,
+                         const int metricFontSize)
+{
+   const string leftRow1 = HUDMetricLineText("TREND EXHAUSTION", exhaustText);
+   const string leftRow2 = HUDMetricLineText("BREAK QUALITY", breakText);
+   const string leftRow3 = HUDMetricLineText("STEP", stepText);
+   const string rightRow1 = HUDMetricLineText("STEP SRC", stepSourceText);
+   const string rightRow2 = HUDMetricLineText("ZONE ENERGY", energyText);
+   const int colSpacing = 20;
+   const int colWidth = MathMax(HUDMetricColumnWidth(leftRow1, leftRow2, leftRow3, metricFontSize),
+                                HUDMetricColumnWidth(rightRow1, rightRow2, "", metricFontSize));
+   const int requiredW = 2 * HUD_SIDE_PADDING + colSpacing + 2 * colWidth;
+   return MathMax(HUDBasePanelWidth(), requiredW);
+}
+
 void EnsureHUDRectangle(const string name)
 {
    if (ObjectFind(0, name) < 0)
@@ -155,6 +206,16 @@ void DeleteLegacyHUDObjects()
    ObjectDelete(0, "LZ_HUD_DETAILS");
    ObjectDelete(0, "LZ_HUD_EBAR_BG");
    ObjectDelete(0, "LZ_HUD_EBAR_FILL");
+   ObjectDelete(0, "LZ_HUD_LBL_EXHAUST");
+   ObjectDelete(0, "LZ_HUD_VAL_EXHAUST");
+   ObjectDelete(0, "LZ_HUD_LBL_BREAKQ");
+   ObjectDelete(0, "LZ_HUD_VAL_BREAKQ");
+   ObjectDelete(0, "LZ_HUD_LBL_STEP");
+   ObjectDelete(0, "LZ_HUD_VAL_STEP");
+   ObjectDelete(0, "LZ_HUD_LBL_STEPSRC");
+   ObjectDelete(0, "LZ_HUD_VAL_STEPSRC");
+   ObjectDelete(0, "LZ_HUD_LBL_ENERGY");
+   ObjectDelete(0, "LZ_HUD_VAL_ENERGY");
 }
 
 void SetHUDRect(const string name,
@@ -189,6 +250,7 @@ void SetHUDLabel(const string name,
                  const color textColor)
 {
    ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
    ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
@@ -240,16 +302,11 @@ void EnsureHUDObjectsCreated()
    EnsureHUDRectangle("LZ_HUD_BAR_BG");
    EnsureHUDRectangle("LZ_HUD_BAR_FILL");
 
-   EnsureHUDLabel("LZ_HUD_LBL_EXHAUST");
-   EnsureHUDLabel("LZ_HUD_VAL_EXHAUST");
-   EnsureHUDLabel("LZ_HUD_LBL_BREAKQ");
-   EnsureHUDLabel("LZ_HUD_VAL_BREAKQ");
-   EnsureHUDLabel("LZ_HUD_LBL_STEP");
-   EnsureHUDLabel("LZ_HUD_VAL_STEP");
-   EnsureHUDLabel("LZ_HUD_LBL_STEPSRC");
-   EnsureHUDLabel("LZ_HUD_VAL_STEPSRC");
-   EnsureHUDLabel("LZ_HUD_LBL_ENERGY");
-   EnsureHUDLabel("LZ_HUD_VAL_ENERGY");
+   EnsureHUDLabel("LZ_HUD_ROW_EXHAUST");
+   EnsureHUDLabel("LZ_HUD_ROW_BREAKQ");
+   EnsureHUDLabel("LZ_HUD_ROW_STEP");
+   EnsureHUDLabel("LZ_HUD_ROW_STEPSRC");
+   EnsureHUDLabel("LZ_HUD_ROW_ENERGY");
 
    EnsureHUDRectangle("LZ_HUD_DETAILS_ICON");
    EnsureHUDLabel("LZ_HUD_DETAILS_TXT");
@@ -279,6 +336,23 @@ void EnsureHUDObjectsCreated()
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_SELECTABLE, InpHUDDraggable);
 }
 
+void SetHUDInlineMetric(const string name,
+                        const int x,
+                        const int y,
+                        const string label,
+                        const string value,
+                        const int metricFontSize,
+                        const color textColor)
+{
+   SetHUDLabel(name,
+               x,
+               y,
+               HUDMetricLineText(label, value),
+               "Segoe UI Semibold",
+               metricFontSize,
+               textColor);
+}
+
 void RenderHUDBase(const int x,
                    const int y,
                    const int panelW,
@@ -288,8 +362,8 @@ void RenderHUDBase(const int x,
                    const color accentColor)
 {
    SetHUDRect("LZ_HUD_SHADOW",
-              x + 6,
-              y + 8,
+              x + 3,
+              y + 4,
               panelW,
               panelH,
               shadowColor,
@@ -308,10 +382,10 @@ void RenderHUDBase(const int x,
       ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_SELECTED, false);
 
    SetHUDRect("LZ_HUD_ACCENT",
-              x + HUD_SIDE_PADDING,
-              y + 11,
-              MathMax(12, panelW - 2 * HUD_SIDE_PADDING),
-              3,
+              x + HUD_SIDE_PADDING + 2,
+              y + 6,
+              MathMax(12, panelW - 2 * HUD_SIDE_PADDING - 4),
+              2,
               accentColor,
               (color)clrNONE,
               false);
@@ -327,25 +401,25 @@ void RenderHUDHeader(const int x,
                      const color badgeBgColor,
                      const color badgeBorderColor,
                      const color badgeTextColor,
-                     const color dividerColor,
+                     const color dividerTopColor,
                      const int titleFontSize,
                      const int badgeFontSize)
 {
    const int contentX = x + HUD_SIDE_PADDING;
-   const int iconSize = 30;
+   const int iconSize = 20;
    const int iconX = contentX;
-   const int iconY = headerY + 6;
-   const int titleX = iconX + iconSize + 14;
-   const int titleY = headerY + 7;
-   const int badgeW = 68;
-   const int badgeH = 24;
+   const int iconY = headerY + 4;
+   const int titleX = iconX + iconSize + 10;
+   const int titleY = headerY + 1;
+   const int badgeW = 44;
+   const int badgeH = 18;
    const int badgeX = x + panelW - HUD_SIDE_PADDING - badgeW;
-   const int badgeY = headerY + 9;
+   const int badgeY = headerY + 4;
 
    SetHUDRect("LZ_HUD_ICON_BG", iconX, iconY, iconSize, iconSize, iconBgColor, (color)clrNONE, false);
-   SetHUDRect("LZ_HUD_ICON_1", iconX + 7, iconY + 8, 16, 2, iconBarColor, (color)clrNONE, false);
-   SetHUDRect("LZ_HUD_ICON_2", iconX + 7, iconY + 14, 12, 2, iconBarColor, (color)clrNONE, false);
-   SetHUDRect("LZ_HUD_ICON_3", iconX + 7, iconY + 20, 18, 2, iconBarColor, (color)clrNONE, false);
+   SetHUDRect("LZ_HUD_ICON_1", iconX + 5, iconY + 5, 10, 2, iconBarColor, (color)clrNONE, false);
+   SetHUDRect("LZ_HUD_ICON_2", iconX + 5, iconY + 10, 7, 2, iconBarColor, (color)clrNONE, false);
+   SetHUDRect("LZ_HUD_ICON_3", iconX + 5, iconY + 15, 12, 2, iconBarColor, (color)clrNONE, false);
 
    SetHUDLabel("LZ_HUD_TITLE",
                titleX,
@@ -364,19 +438,19 @@ void RenderHUDHeader(const int x,
               badgeBorderColor,
               false);
    SetHUDLabel("LZ_HUD_VERSION_TXT",
-               badgeX + 17,
-               badgeY + 4,
+               badgeX + 10,
+               badgeY + 2,
                HUDDisplayVersion(),
                "Segoe UI Semibold",
                badgeFontSize,
                badgeTextColor);
 
    SetHUDRect("LZ_HUD_DIVIDER_TOP",
-              contentX,
+              contentX + 3,
               dividerTopY,
-              MathMax(12, panelW - 2 * HUD_SIDE_PADDING),
+              MathMax(12, panelW - 2 * HUD_SIDE_PADDING - 6),
               HUD_DIVIDER_THICKNESS,
-              dividerColor,
+              dividerTopColor,
               (color)clrNONE,
               false);
 }
@@ -396,6 +470,7 @@ void RenderHUDTopGrid(const int x,
                       const color microColor,
                       const color strengthColor,
                       const color dividerColor,
+                      const color vDividerColor,
                       const color barBgColor,
                       const color barFillColor,
                       const int labelFontSize,
@@ -405,16 +480,16 @@ void RenderHUDTopGrid(const int x,
    const int contentX = x + HUD_SIDE_PADDING;
    const int contentW = MathMax(16, panelW - 2 * HUD_SIDE_PADDING);
    const int colW = contentW / 4;
-   const int colPad = 10;
-   const int labelY = topGridY + 2;
-   const int valueY = topGridY + 28;
-   const int strengthValueY = topGridY + 14;
-   const int sepY = topGridY + 2;
-   const int sepH = MathMax(10, topGridH - 4);
+   const int colPad = 6;
+   const int labelY = topGridY + 0;
+   const int valueY = topGridY + 14;
+   const int strengthValueY = topGridY + 10;
+   const int sepY = topGridY + 4;
+   const int sepH = MathMax(10, topGridH - 12);
 
-   SetHUDRect("LZ_HUD_VSEP_1", contentX + colW, sepY, 1, sepH, dividerColor, (color)clrNONE, false);
-   SetHUDRect("LZ_HUD_VSEP_2", contentX + 2 * colW, sepY, 1, sepH, dividerColor, (color)clrNONE, false);
-   SetHUDRect("LZ_HUD_VSEP_3", contentX + 3 * colW, sepY, 1, sepH, dividerColor, (color)clrNONE, false);
+   SetHUDRect("LZ_HUD_VSEP_1", contentX + colW, sepY, 1, sepH, vDividerColor, (color)clrNONE, false);
+   SetHUDRect("LZ_HUD_VSEP_2", contentX + 2 * colW, sepY, 1, sepH, vDividerColor, (color)clrNONE, false);
+   SetHUDRect("LZ_HUD_VSEP_3", contentX + 3 * colW, sepY, 1, sepH, vDividerColor, (color)clrNONE, false);
 
    SetHUDLabel("LZ_HUD_LBL_REGIME", contentX + colPad, labelY, "REGIME", "Segoe UI", labelFontSize, labelColor);
    SetHUDLabel("LZ_HUD_VAL_REGIME", contentX + colPad, valueY, regimeText, "Segoe UI Semibold", valueFontSize, regimeColor);
@@ -426,7 +501,7 @@ void RenderHUDTopGrid(const int x,
    SetHUDLabel("LZ_HUD_VAL_MICRO", contentX + 2 * colW + colPad, valueY, microText, "Segoe UI Semibold", valueFontSize, microColor);
 
    const int strengthX = contentX + 3 * colW + colPad;
-   const int strengthBarY = topGridY + 54;
+   const int strengthBarY = topGridY + 31;
    const int strengthBarW = MathMax(16, colW - 2 * colPad - 2);
    const int strengthBarH = HUDBarHeight();
    int strengthFillW = (int)MathRound((double)strengthBarW * Clamp01((double)strengthPct / 100.0));
@@ -460,9 +535,9 @@ void RenderHUDTopGrid(const int x,
               false);
 
    SetHUDRect("LZ_HUD_DIVIDER_MID",
-              contentX,
+              contentX + 2,
               dividerMidY,
-              MathMax(12, contentW),
+              MathMax(12, contentW - 4),
               HUD_DIVIDER_THICKNESS,
               dividerColor,
               (color)clrNONE,
@@ -479,61 +554,47 @@ void RenderHUDMiddleGrid(const int x,
                          const string stepText,
                          const string stepSourceText,
                          const string energyText,
-                         const color labelColor,
                          const color exhaustColor,
                          const color breakColor,
                          const color stepColor,
                          const color stepSourceColor,
                          const color energyColor,
                          const color dividerColor,
-                         const int labelFontSize,
-                         const int valueFontSize,
-                         const int smallValueFontSize)
+                         const color vDividerColor,
+                         const int metricFontSize)
 {
    const int contentX = x + HUD_SIDE_PADDING;
-   const int contentW = MathMax(16, panelW - 2 * HUD_SIDE_PADDING);
-   const int colGap = 18;
-   const int colW = MathMax(20, (contentW - colGap) / 2);
-   const int leftX = contentX;
-   const int rightX = contentX + colW + colGap;
-   const int midSepX = contentX + colW + (colGap / 2);
-   const int valueOffset = MathMax(122, colW - 120);
+   const int usableWidth = MathMax(16, panelW - 2 * HUD_SIDE_PADDING);
+   const int colSpacing = 20;
+   const int colWidth = MathMax(20, (usableWidth - colSpacing) / 2);
+   const int col1X = contentX;
+   const int col2X = col1X + colWidth + colSpacing;
+   const int midSepX = col1X + colWidth + (colSpacing / 2);
    const int stretch = MathMax(0, middleGridH - HUD_MIDDLE_GRID_BASE_HEIGHT);
 
-   const int leftRow1Y = middleGridY + 0;
-   const int leftRow2Y = middleGridY + 24 + (stretch / 3);
-   const int leftRow3Y = middleGridY + 48 + ((2 * stretch) / 3);
-   const int rightRow1Y = middleGridY + 8;
-   const int rightRow2Y = middleGridY + 42 + (stretch / 2);
+   const int row1Y = middleGridY;
+   const int row2Y = middleGridY + 16 + (stretch / 3);
+   const int row3Y = middleGridY + 32 + ((2 * stretch) / 3);
 
    SetHUDRect("LZ_HUD_VSEP_MID",
               midSepX,
-              middleGridY + 2,
+              middleGridY + 3,
               1,
-              MathMax(10, middleGridH - 4),
-              dividerColor,
+              MathMax(10, middleGridH - 6),
+              vDividerColor,
               (color)clrNONE,
               false);
 
-   SetHUDLabel("LZ_HUD_LBL_EXHAUST", leftX, leftRow1Y, "TREND EXHAUSTION", "Segoe UI", labelFontSize, labelColor);
-   SetHUDLabel("LZ_HUD_VAL_EXHAUST", leftX + valueOffset, leftRow1Y - 1, exhaustText, "Segoe UI Semibold", valueFontSize, exhaustColor);
-
-   SetHUDLabel("LZ_HUD_LBL_BREAKQ", leftX, leftRow2Y, "BREAK QUALITY", "Segoe UI", labelFontSize, labelColor);
-   SetHUDLabel("LZ_HUD_VAL_BREAKQ", leftX + valueOffset, leftRow2Y - 1, breakText, "Segoe UI Semibold", valueFontSize, breakColor);
-
-   SetHUDLabel("LZ_HUD_LBL_STEP", leftX, leftRow3Y, "STEP", "Segoe UI", labelFontSize, labelColor);
-   SetHUDLabel("LZ_HUD_VAL_STEP", leftX + valueOffset, leftRow3Y - 1, stepText, "Segoe UI Semibold", smallValueFontSize, stepColor);
-
-   SetHUDLabel("LZ_HUD_LBL_STEPSRC", rightX, rightRow1Y, "STEP SRC", "Segoe UI", labelFontSize, labelColor);
-   SetHUDLabel("LZ_HUD_VAL_STEPSRC", rightX + valueOffset, rightRow1Y - 1, stepSourceText, "Segoe UI Semibold", smallValueFontSize, stepSourceColor);
-
-   SetHUDLabel("LZ_HUD_LBL_ENERGY", rightX, rightRow2Y, "ZONE ENERGY", "Segoe UI", labelFontSize, labelColor);
-   SetHUDLabel("LZ_HUD_VAL_ENERGY", rightX + valueOffset, rightRow2Y - 1, energyText, "Segoe UI Semibold", valueFontSize, energyColor);
+   SetHUDInlineMetric("LZ_HUD_ROW_EXHAUST", col1X, row1Y, "TREND EXHAUSTION", exhaustText, metricFontSize, exhaustColor);
+   SetHUDInlineMetric("LZ_HUD_ROW_BREAKQ", col1X, row2Y, "BREAK QUALITY", breakText, metricFontSize, breakColor);
+   SetHUDInlineMetric("LZ_HUD_ROW_STEP", col1X, row3Y, "STEP", stepText, metricFontSize, stepColor);
+   SetHUDInlineMetric("LZ_HUD_ROW_STEPSRC", col2X, row1Y, "STEP SRC", stepSourceText, metricFontSize, stepSourceColor);
+   SetHUDInlineMetric("LZ_HUD_ROW_ENERGY", col2X, row2Y, "ZONE ENERGY", energyText, metricFontSize, energyColor);
 
    SetHUDRect("LZ_HUD_DIVIDER_BOTTOM",
-              contentX,
+              contentX + 2,
               dividerBottomY,
-              MathMax(12, contentW),
+              MathMax(12, usableWidth - 4),
               HUD_DIVIDER_THICKNESS,
               dividerColor,
               (color)clrNONE,
@@ -554,12 +615,12 @@ void RenderHUDFooter(const int x,
 {
    const int contentX = x + HUD_SIDE_PADDING;
    const int contentW = MathMax(16, panelW - 2 * HUD_SIDE_PADDING);
-   const int iconY = footerY + 6;
-   const int iconSize = 10;
-   const int detailsX = contentX + 16;
-   const int metricW = 68;
-   const int metricGap = 14;
-   const int metricsStartX = contentX + MathMax(130, contentW - (metricW * 3 + metricGap * 2));
+   const int iconY = footerY + 3;
+   const int iconSize = 8;
+   const int detailsX = contentX + 11;
+   const int metricW = 48;
+   const int metricGap = 10;
+   const int metricsStartX = contentX + MathMax(82, contentW - (metricW * 3 + metricGap * 2));
 
    SetHUDRect("LZ_HUD_DETAILS_ICON",
               contentX,
@@ -569,7 +630,7 @@ void RenderHUDFooter(const int x,
               detailsIconColor,
               (color)clrNONE,
               false);
-   SetHUDLabel("LZ_HUD_DETAILS_TXT", detailsX, footerY + 1, "DETAILS", "Segoe UI Semibold", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_DETAILS_TXT", detailsX, footerY, "DETAILS", "Segoe UI Semibold", labelFontSize, labelColor);
    SetHUDLabel("LZ_HUD_DETAILS_R2", metricsStartX, footerY, r2Text, "Segoe UI Semibold", detailFontSize, detailValueColor);
    SetHUDLabel("LZ_HUD_DETAILS_ER", metricsStartX + metricW + metricGap, footerY, erText, "Segoe UI Semibold", detailFontSize, detailValueColor);
    SetHUDLabel("LZ_HUD_DETAILS_S", metricsStartX + 2 * (metricW + metricGap), footerY, sText, "Segoe UI Semibold", detailFontSize, detailValueColor);
@@ -589,32 +650,8 @@ void DeleteTrendHUD()
 
 void RenderTrendHUD(const HUDState &state)
 {
-   EnsureHUDObjectsCreated();
-
    if (InpHUDDraggable && !g_hud_is_dragging && g_hud_user_moved)
       SyncHUDPositionFromObject();
-
-   const int panelW = HUDPanelWidth();
-   const int panelH = HUDPanelHeight();
-   if (!g_hud_user_moved)
-   {
-      g_hud_x = HUDDefaultX(panelW);
-      g_hud_y = HUDDefaultY();
-   }
-   ClampHUDPosition(panelW, panelH);
-
-   const int x = MathMax(0, g_hud_x);
-   const int y = MathMax(0, g_hud_y);
-   const int extraH = MathMax(0, panelH - HUDMinimumPanelHeight());
-   const int middleGridH = HUD_MIDDLE_GRID_BASE_HEIGHT + extraH;
-
-   const int headerY = y + HUD_TOP_PADDING;
-   const int dividerTopY = headerY + HUD_HEADER_HEIGHT;
-   const int topGridY = dividerTopY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
-   const int dividerMidY = topGridY + HUD_TOP_GRID_HEIGHT + HUD_SECTION_GAP;
-   const int middleGridY = dividerMidY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
-   const int dividerBottomY = middleGridY + middleGridH + HUD_SECTION_GAP;
-   const int footerY = dividerBottomY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
 
    int aMin = ClampInt(InpHUDAlphaMin, 0, 255);
    int aMax = ClampInt(InpHUDAlphaMax, 0, 255);
@@ -642,29 +679,32 @@ void RenderTrendHUD(const HUDState &state)
    const string erText = DetailMetricText("ER", showDetails, state.er);
    const string sText = DetailMetricText("S", showDetails, state.slope01);
 
-   const color shadowColor = (color)ColorToARGB(clrBlack, (uchar)ClampInt(16 + (alpha / 16), 16, 32));
-   const color panelBgColor = (color)ColorToARGB(clrMidnightBlue, (uchar)ClampInt(96 + (alpha / 6), 96, 138));
-   const color accentColor = (color)ColorToARGB(clrDeepSkyBlue, (uchar)ClampInt(128 + (alpha / 4), 128, 188));
-   const color dividerColor = (color)ColorToARGB(clrLightSteelBlue, 42);
+   const color shadowColor = (color)ColorToARGB(clrBlack, (uchar)ClampInt(15 + (alpha / 48), 15, 24));
+   const color panelBgColor = (color)ColorToARGB(clrBlack, (uchar)ClampInt(38 + (alpha / 48), 38, 48));
+   const color accentColor = (color)ColorToARGB(clrDeepSkyBlue, (uchar)ClampInt(134 + (alpha / 8), 134, 164));
+   const color dividerTopColor = (color)ColorToARGB(clrDeepSkyBlue, 52);
+   const color dividerColor = (color)ColorToARGB(clrSlateGray, 26);
+   const color vDividerColor = (color)ColorToARGB(clrSlateGray, 18);
    const color titleColor = (color)ColorToARGB(clrWhiteSmoke, 235);
-   const color badgeBgColor = (color)ColorToARGB(clrDarkSlateBlue, 145);
-   const color badgeBorderColor = (color)ColorToARGB(clrDeepSkyBlue, 52);
-   const color badgeTextColor = (color)ColorToARGB(clrAliceBlue, 222);
-   const color iconBgColor = (color)ColorToARGB(clrDodgerBlue, 165);
+   const color badgeBgColor = (color)ColorToARGB(clrBlack, 68);
+   const color badgeBorderColor = (color)ColorToARGB(clrSteelBlue, 34);
+   const color badgeTextColor = (color)ColorToARGB(clrGainsboro, 214);
+   const color iconBgColor = (color)ColorToARGB(clrNavy, 86);
    const color iconBarColor = (color)ColorToARGB(clrAliceBlue, 224);
-   const color labelColor = (color)ColorToARGB(clrSilver, 178);
-   const color neutralValueColor = (color)ColorToARGB(clrGainsboro, 214);
-   const color upColor = (color)ColorToARGB(clrAquamarine, 224);
-   const color downColor = (color)ColorToARGB(clrTomato, 222);
-   const color rangeColor = (color)ColorToARGB(clrLightSkyBlue, 218);
-   const color strengthColor = (color)ColorToARGB(clrAliceBlue, 230);
-   const color barBgColor = (color)ColorToARGB(clrSlateGray, 95);
-   const color barFillColor = (color)ColorToARGB(clrDeepSkyBlue, 224);
-   const color warnColor = (color)ColorToARGB(clrGold, 224);
-   const color stepColor = (color)ColorToARGB(clrLightSkyBlue, 226);
-   const color stepSourceAccent = (color)ColorToARGB(clrMediumPurple, 220);
-   const color energySoftColor = (color)ColorToARGB(clrPowderBlue, 214);
-   const color detailValueColor = (color)ColorToARGB(clrSilver, 204);
+   const color labelColor = (color)ColorToARGB(clrSilver, 166);
+   const color neutralValueColor = (color)ColorToARGB(clrWhiteSmoke, 208);
+   const color upColor = (color)ColorToARGB(clrSpringGreen, 214);
+   const color downColor = (color)ColorToARGB(clrOrangeRed, 206);
+   const color rangeColor = (color)ColorToARGB(clrDeepSkyBlue, 214);
+   const color strengthColor = (color)ColorToARGB(clrDeepSkyBlue, 228);
+   const color barBgColor = (color)ColorToARGB(clrSlateGray, 58);
+   const color barFillColor = (color)ColorToARGB(clrDeepSkyBlue, 214);
+   const color warnColor = (color)ColorToARGB(clrGold, 214);
+   const color stepColor = (color)ColorToARGB(clrDeepSkyBlue, 224);
+   const color stepSourceAccent = (color)ColorToARGB(clrMediumPurple, 204);
+   const color energySoftColor = (color)ColorToARGB(clrLightSteelBlue, 196);
+   const color detailsIconColor = (color)ColorToARGB(clrLightSteelBlue, 120);
+   const color detailValueColor = (color)ColorToARGB(clrSilver, 162);
 
    const color regimeColor = HUDRegimeColor(state, upColor, downColor, rangeColor, neutralValueColor);
    const color biasColor = (showBiasAndMicro ? HUDDirectionColor(state.biasDir, upColor, downColor, neutralValueColor) : neutralValueColor);
@@ -683,14 +723,44 @@ void RenderTrendHUD(const HUDState &state)
                                                 energySoftColor,
                                                 neutralValueColor);
 
-   const int baseFont = MathMax(9, InpHUDFontSize);
-   const int labelFontSize = MathMax(8, baseFont - 1);
-   const int valueFontSize = baseFont + 3;
+   const int baseFont = MathMax(8, (int)MathRound((double)MathMax(6, InpHUDFontSize) * 0.80));
+   const int labelFontSize = MathMax(7, baseFont - 1);
+   const int valueFontSize = baseFont + 2;
    const int smallValueFontSize = baseFont + 1;
-   const int strengthFontSize = baseFont + 8;
-   const int titleFontSize = baseFont + 3;
-   const int badgeFontSize = MathMax(8, baseFont - 1);
-   const int detailFontSize = MathMax(9, baseFont);
+   const int middleMetricFontSize = MathMax(labelFontSize + 1, smallValueFontSize);
+   const int strengthFontSize = baseFont + 4;
+   const int titleFontSize = baseFont + 2;
+   const int badgeFontSize = MathMax(7, baseFont - 1);
+   const int detailFontSize = MathMax(7, baseFont - 1);
+   const int panelW = HUDResolvePanelWidth(exhaustText,
+                                           breakText,
+                                           stepText,
+                                           stepSourceText,
+                                           energyText,
+                                           middleMetricFontSize);
+   const int panelH = HUDBasePanelHeight();
+
+   HUDRememberPanelSize(panelW, panelH);
+   if (!g_hud_user_moved)
+   {
+      g_hud_x = HUDDefaultX(panelW);
+      g_hud_y = HUDDefaultY();
+   }
+   ClampHUDPosition(panelW, panelH);
+   EnsureHUDObjectsCreated();
+
+   const int x = MathMax(0, g_hud_x);
+   const int y = MathMax(0, g_hud_y);
+   const int extraH = MathMax(0, panelH - HUDMinimumPanelHeight());
+   const int middleGridH = HUD_MIDDLE_GRID_BASE_HEIGHT + extraH;
+
+   const int headerY = y + HUD_TOP_PADDING;
+   const int dividerTopY = headerY + HUD_HEADER_HEIGHT;
+   const int topGridY = dividerTopY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
+   const int dividerMidY = topGridY + HUD_TOP_GRID_HEIGHT + HUD_SECTION_GAP;
+   const int middleGridY = dividerMidY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
+   const int dividerBottomY = middleGridY + middleGridH + HUD_SECTION_GAP;
+   const int footerY = dividerBottomY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
 
    RenderHUDBase(x, y, panelW, panelH, shadowColor, panelBgColor, accentColor);
    RenderHUDHeader(x,
@@ -703,7 +773,7 @@ void RenderTrendHUD(const HUDState &state)
                    badgeBgColor,
                    badgeBorderColor,
                    badgeTextColor,
-                   dividerColor,
+                   dividerTopColor,
                    titleFontSize,
                    badgeFontSize);
    RenderHUDTopGrid(x,
@@ -721,6 +791,7 @@ void RenderTrendHUD(const HUDState &state)
                     microColor,
                     strengthColor,
                     dividerColor,
+                    vDividerColor,
                     barBgColor,
                     barFillColor,
                     labelFontSize,
@@ -736,23 +807,21 @@ void RenderTrendHUD(const HUDState &state)
                        stepText,
                        stepSourceText,
                        energyText,
-                       labelColor,
                        exhaustColor,
                        breakColor,
                        stepColor,
                        stepSourceColor,
                        energyColor,
                        dividerColor,
-                       labelFontSize,
-                       valueFontSize,
-                       smallValueFontSize);
+                       vDividerColor,
+                       middleMetricFontSize);
    RenderHUDFooter(x,
                    panelW,
                    footerY,
                    r2Text,
                    erText,
                    sText,
-                   accentColor,
+                   detailsIconColor,
                    labelColor,
                    detailValueColor,
                    labelFontSize,
