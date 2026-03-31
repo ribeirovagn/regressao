@@ -3,6 +3,28 @@
 
 #include "HUDLayout.mqh"
 
+string BuildHUDStorageKey(const string suffix)
+{
+   return StringFormat("MRZ_HUD_%s_%s_%d", suffix, _Symbol, (int)_Period);
+}
+
+void BuildHUDStorageKeys()
+{
+   g_hud_key_x = BuildHUDStorageKey("X");
+   g_hud_key_y = BuildHUDStorageKey("Y");
+   g_hud_key_moved = BuildHUDStorageKey("MOVED");
+}
+
+void ClearSavedHUDPosition()
+{
+   if (StringLen(g_hud_key_x) == 0 || StringLen(g_hud_key_y) == 0 || StringLen(g_hud_key_moved) == 0)
+      BuildHUDStorageKeys();
+
+   GlobalVariableDel(g_hud_key_x);
+   GlobalVariableDel(g_hud_key_y);
+   GlobalVariableDel(g_hud_key_moved);
+}
+
 void ClampHUDPosition(const int panelW, const int panelH)
 {
    int chartW = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
@@ -13,6 +35,51 @@ void ClampHUDPosition(const int panelW, const int panelH)
 
    g_hud_x = MathMax(0, MathMin(g_hud_x, maxX));
    g_hud_y = MathMax(0, MathMin(g_hud_y, maxY));
+}
+
+void SaveHUDPosition()
+{
+   if (!InpHUDPersistPosition)
+      return;
+
+   if (StringLen(g_hud_key_x) == 0 || StringLen(g_hud_key_y) == 0 || StringLen(g_hud_key_moved) == 0)
+      BuildHUDStorageKeys();
+
+   ClampHUDPosition(HUDPanelWidth(), HUDPanelHeight());
+   GlobalVariableSet(g_hud_key_x, (double)g_hud_x);
+   GlobalVariableSet(g_hud_key_y, (double)g_hud_y);
+   GlobalVariableSet(g_hud_key_moved, (g_hud_user_moved ? 1.0 : 0.0));
+}
+
+void LoadHUDPosition()
+{
+   g_hud_corner = CORNER_LEFT_UPPER;
+
+   if (!InpHUDPersistPosition)
+   {
+      g_hud_x = HUDDefaultX(HUDPanelWidth());
+      g_hud_y = HUDDefaultY();
+      g_hud_user_moved = false;
+      return;
+   }
+
+   if (StringLen(g_hud_key_x) == 0 || StringLen(g_hud_key_y) == 0 || StringLen(g_hud_key_moved) == 0)
+      BuildHUDStorageKeys();
+
+   const bool hasSavedPosition = (GlobalVariableCheck(g_hud_key_x) &&
+                                  GlobalVariableCheck(g_hud_key_y) &&
+                                  GlobalVariableCheck(g_hud_key_moved));
+   if (hasSavedPosition)
+   {
+      g_hud_x = (int)MathRound(GlobalVariableGet(g_hud_key_x));
+      g_hud_y = (int)MathRound(GlobalVariableGet(g_hud_key_y));
+      g_hud_user_moved = (GlobalVariableGet(g_hud_key_moved) > 0.5);
+      return;
+   }
+
+   g_hud_x = HUDDefaultX(HUDPanelWidth());
+   g_hud_y = HUDDefaultY();
+   g_hud_user_moved = false;
 }
 
 void ShiftHUDObjectByDelta(const string name, const int dx, const int dy)
@@ -31,12 +98,13 @@ void ShiftHUDContentByDelta(const int dx, const int dy)
    if (dx == 0 && dy == 0)
       return;
 
-   ShiftHUDObjectByDelta("LZ_HUD_SHADOW", dx, dy);
-   ShiftHUDObjectByDelta("LZ_HUD_ACCENT", dx, dy);
-   ShiftHUDObjectByDelta("LZ_HUD_BAR_BG", dx, dy);
-   ShiftHUDObjectByDelta("LZ_HUD_BAR_FILL", dx, dy);
-   for (int i = 0; i < HUD_MAX_LINES; ++i)
-      ShiftHUDObjectByDelta(StringFormat("LZ_HUD_LINE_%d", i), dx, dy);
+   for (int i = 0; i < HUD_OBJECT_COUNT; ++i)
+   {
+      const string name = HUDObjectName(i);
+      if (StringLen(name) == 0 || name == "LZ_HUD_BG")
+         continue;
+      ShiftHUDObjectByDelta(name, dx, dy);
+   }
 }
 
 void ApplyHUDPositionToObjects()
@@ -70,18 +138,6 @@ void SyncHUDPositionFromObject()
    g_hud_y = MathMax(0, (int)ObjectGetInteger(0, "LZ_HUD_BG", OBJPROP_YDISTANCE));
 }
 
-void InitializeHUDState()
-{
-   const int panelW = HUDPanelWidth();
-   const int panelH = HUDPanelHeight();
-   g_hud_corner = CORNER_LEFT_UPPER;
-   g_hud_x = HUDDefaultX(panelW);
-   g_hud_y = HUDDefaultY();
-   ClampHUDPosition(panelW, panelH);
-   g_hud_is_dragging = false;
-   g_hud_user_moved = false;
-}
-
 void HandleHUDChartEvent(const int id, const string sparam)
 {
    if (!InpEnableTrendHUD)
@@ -103,6 +159,8 @@ void HandleHUDChartEvent(const int id, const string sparam)
       g_hud_is_dragging = false;
       ClampHUDPosition(panelW, panelH);
       ApplyHUDPositionToObjects();
+      if (g_hud_user_moved)
+         SaveHUDPosition();
       ChartRedraw(0);
       return;
    }
@@ -130,6 +188,7 @@ void HandleHUDChartEvent(const int id, const string sparam)
       ApplyHUDPositionToObjects();
       if (id == CHARTEVENT_OBJECT_CHANGE)
          g_hud_is_dragging = false;
+      SaveHUDPosition();
       ChartRedraw(0);
    }
 }

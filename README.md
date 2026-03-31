@@ -12,7 +12,7 @@ MarketRegime Zones is an MQL5 indicator that interprets market structure through
 - Range and breakout zone detection
 - Trend strength, exhaustion, and break quality
 - Horizontal projection levels from recent zone structure
-- Compact draggable HUD for real-time interpretation
+- Premium draggable HUD with dashboard-style sections and live metrics
 - Built for discretionary trading and future ML-oriented workflows
 
 ## Why it's different
@@ -28,8 +28,8 @@ Most MT5 indicators summarize price through moving averages, oscillators, or mom
 - Renders zones with duration-based transparency and border width driven by average range score.
 - Optionally extends a zone until breakout and can draw the zone midline.
 - Projects horizontal levels from the most relevant recent zone in active-mode rendering.
-- Shows a draggable HUD with `REGIME`, `BIAS`, `MICROTREND`, `STRENGTH`, `TREND EXHAUSTION`, `BREAK QUALITY`, `STEP`, `STEP SRC`, `ZONE ENERGY`, and optional `R2 / ER / S`.
-- Falls back to a single `DIR` line when `InpShowBiasAndMicrotrend = false`.
+- Shows a premium draggable HUD with a modern header, four-column top grid, two-column metrics grid, strength bar, and footer details for `R2 / ER / S`.
+- Keeps the dashboard layout stable even when some fields are disabled, using `N/A` instead of collapsing sections.
 - Calculates `TREND STRENGTH` from normalized slope, `R2`, and Efficiency Ratio (`ER`).
 - Calculates `TREND EXHAUSTION` from distance to zone mid, short-window strength drop, and short-window noise.
 - Calculates `BREAK QUALITY` from trend strength, broken-zone energy, breakout penetration, and freshness.
@@ -38,13 +38,13 @@ Most MT5 indicators summarize price through moving averages, oscillators, or mom
 
 ## HUD Interpretation
 
-The HUD is designed to be read in a few seconds, not treated as a full control panel.
+The HUD is designed to be read in a few seconds, not treated as a full control panel. The current layout is a fixed premium card: header, top grid, middle metrics grid, and footer details.
 
 | HUD Field | Quick Interpretation |
 | --- | --- |
 | `REGIME` | Current structural state: `RANGE`, `TREND`, or `MIXED`. |
-| `BIAS` | Main directional bias from the primary regression window. |
-| `MICROTREND` | Shorter-window directional read for local flow. |
+| `BIAS` | Main directional bias from the primary regression window; shows `N/A` when the split bias/micro view is disabled. |
+| `MICROTREND` | Shorter-window directional read for local flow; shows `N/A` when the split bias/micro view is disabled. |
 | `STRENGTH` | Composite trend quality built from slope, `R2`, and `ER`. |
 | `TREND EXHAUSTION` | How stretched or tired the current move looks relative to zone structure and short-term deterioration. |
 | `BREAK QUALITY` | How credible the last breakout is based on strength, penetration, zone energy, and freshness. |
@@ -71,7 +71,7 @@ This repository tracks source code only. Compile the indicator locally in MetaEd
 - Otherwise `REGIME` is `MIXED`.
 - `BIAS` uses the main regression window (`InpWindow`).
 - `MICROTREND` uses the shorter regression window (`InpMicrotrendWindow`).
-- `DIR` replaces `BIAS` and `MICROTREND` when `InpShowBiasAndMicrotrend = false`.
+- `BIAS` and `MICROTREND` stay in place when `InpShowBiasAndMicrotrend = false`, but render as `N/A` to preserve the dashboard layout.
 - `STEP` is the current zone height: `top - bottom`.
 - `STEP SRC` is `ACTIVE`, `LAST BROKEN`, or `N/A`.
 - `ZONE ENERGY` is shown only for the last active zone; if no active zone exists, the HUD shows `N/A`.
@@ -163,11 +163,13 @@ Projection behavior:
 | `InpShowBiasAndMicrotrend` | `bool` | `true` | Shows separate `BIAS` and `MICROTREND` lines. |
 | `InpMicrotrendWindow` | `int` | `30` | Regression window used for the short-term microtrend. |
 | `InpHUDDraggable` | `bool` | `true` | Allows dragging the HUD on chart. |
+| `InpHUDPersistPosition` | `bool` | `true` | Persists the dragged HUD position through MT5 Global Variables keyed by symbol and timeframe. |
+| `InpHUDResetSavedPosition` | `bool` | `false` | Clears the saved HUD position on initialization and restores the default top-right placement. |
 | `InpHUDXDefault` | `int` | `12` | Default HUD X offset. |
 | `InpHUDYDefault` | `int` | `12` | Default HUD Y offset. |
 | `InpHUDFontSize` | `int` | `10` | HUD font size. |
-| `InpHUDWidth` | `int` | `240` | Requested HUD width. |
-| `InpHUDHeight` | `int` | `86` | Minimum HUD height. |
+| `InpHUDWidth` | `int` | `620` | Requested HUD width; the renderer clamps to a 620 px minimum to preserve the approved dashboard proportions. |
+| `InpHUDHeight` | `int` | `304` | Requested HUD height; the renderer clamps to a 304 px minimum to preserve the approved dashboard proportions. |
 | `InpHUDAlphaMin` | `int` | `170` | Minimum HUD alpha (`0..255`). |
 | `InpHUDAlphaMax` | `int` | `255` | Maximum HUD alpha (`0..255`). |
 | `InpBarHeight` | `int` | `10` | Strength bar height input. |
@@ -177,6 +179,13 @@ Projection behavior:
 | `InpTrendWeightSlope` | `double` | `0.40` | Weight of normalized slope in `trend_strength`. |
 | `InpTrendWeightR2` | `double` | `0.40` | Weight of `R2` in `trend_strength`. |
 | `InpTrendWeightER` | `double` | `0.20` | Weight of `ER` in `trend_strength`. |
+
+HUD position persistence:
+
+- The HUD still spawns in the default top-right position until the user drags it.
+- When `InpHUDPersistPosition = true`, the indicator stores `X`, `Y`, and `MOVED` flags in MT5 Global Variables using keys such as `MRZ_HUD_X_<SYMBOL>_<PERIOD>`.
+- Saved positions are isolated per symbol and timeframe, restored on the next load, and clamped back into the visible chart area if the chart size changes.
+- `InpHUDResetSavedPosition = true` acts as a reset-on-init switch; after clearing the stored position, leave it back at `false` if you want persistence to resume on the next initialization.
 
 ### 6) Trend Exhaustion
 
@@ -231,7 +240,7 @@ Projection behavior:
 
 - The indicator uses only price statistics. It does not depend on moving averages, oscillators, or other classic indicators.
 - In `OnInit()`, the code calls `ObjectsDeleteAll(0, -1, -1)`, which clears all objects on the current chart before creating its own HUD and drawing objects.
-- The HUD remains draggable and automatically adjusts its height to the number of visible lines.
+- The HUD remains draggable only from the main background card, moves every child object together, and persists its dragged position through MT5 Global Variables.
 - The indicator short name shown by MT5 is `MarketRegime Zones (v2.14)`.
 
 ## Roadmap / Next Steps

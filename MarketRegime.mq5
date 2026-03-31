@@ -60,11 +60,13 @@ input bool InpShowTrendDetails = true;
 input bool InpShowBiasAndMicrotrend = true;
 input int InpMicrotrendWindow = 30;
 input bool InpHUDDraggable = true;
+input bool InpHUDPersistPosition = true;
+input bool InpHUDResetSavedPosition = false;
 input int InpHUDXDefault = 12;
 input int InpHUDYDefault = 12;
 input int InpHUDFontSize = 10;
-input int InpHUDWidth = 240;
-input int InpHUDHeight = 86;
+input int InpHUDWidth = 620;
+input int InpHUDHeight = 304;
 input int InpHUDAlphaMin = 170;
 input int InpHUDAlphaMax = 255;
 input int InpBarHeight = 10;
@@ -113,6 +115,9 @@ int g_hud_x = 12;
 int g_hud_y = 12;
 bool g_hud_is_dragging = false;
 bool g_hud_user_moved = false;
+string g_hud_key_x = "";
+string g_hud_key_y = "";
+string g_hud_key_moved = "";
 
 #include "Core/Utils.mqh"
 #include "Stats/LinearRegression.mqh"
@@ -148,7 +153,18 @@ int OnInit()
    if (InpOnCalculateDelaySeconds < 0)
       return INIT_PARAMETERS_INCORRECT;
 
-   InitializeHUDState();
+   BuildHUDStorageKeys();
+   if (InpHUDResetSavedPosition)
+      ClearSavedHUDPosition();
+
+   LoadHUDPosition();
+   const int panelW = HUDPanelWidth();
+   const int panelH = HUDPanelHeight();
+   ClampHUDPosition(panelW, panelH);
+   if (InpHUDPersistPosition && g_hud_user_moved)
+      SaveHUDPosition();
+   g_hud_corner = CORNER_LEFT_UPPER;
+   g_hud_is_dragging = false;
 
    SetIndexBuffer(0, MarkerBuffer, INDICATOR_DATA);
    SetIndexBuffer(1, ScoreBuffer, INDICATOR_CALCULATIONS);

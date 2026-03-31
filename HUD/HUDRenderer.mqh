@@ -6,35 +6,14 @@
 #include "HUDLayout.mqh"
 #include "HUDDragController.mqh"
 
-string HUDLineName(const int idx)
+string HUDDisplayTitle()
 {
-   return StringFormat("LZ_HUD_LINE_%d", idx);
+   return "MarketRegime Zones";
 }
 
-bool HUDTextStartsWith(const string txt, const string prefix)
+string HUDDisplayVersion()
 {
-   return (StringFind(txt, prefix) == 0);
-}
-
-bool IsPrimaryHUDLine(const string txt)
-{
-   return (HUDTextStartsWith(txt, "REGIME:") ||
-           HUDTextStartsWith(txt, "BIAS:") ||
-           HUDTextStartsWith(txt, "MICROTREND:") ||
-           HUDTextStartsWith(txt, "DIR:") ||
-           HUDTextStartsWith(txt, "STRENGTH:"));
-}
-
-bool IsDetailsHUDLine(const string txt)
-{
-   return HUDTextStartsWith(txt, "R2:");
-}
-
-void AppendHUDLine(string &lines[], const string txt)
-{
-   const int n = ArraySize(lines);
-   ArrayResize(lines, n + 1);
-   lines[n] = txt;
+   return "v2.13";
 }
 
 string DirectionToText(const int dir)
@@ -46,29 +25,128 @@ string DirectionToText(const int dir)
    return "NEUTRAL";
 }
 
-void EnsureHUDObjectsCreated()
+string RegimeToText(const ENUM_REGIME_STATE regime)
 {
-   if (ObjectFind(0, "LZ_HUD_SHADOW") < 0)
-      ObjectCreate(0, "LZ_HUD_SHADOW", OBJ_RECTANGLE_LABEL, 0, 0, 0);
+   if (regime == REGIME_RANGE)
+      return "RANGE";
+   if (regime == REGIME_TREND)
+      return "TREND";
+   return "MIXED";
+}
 
-   bool bgCreated = false;
-   if (ObjectFind(0, "LZ_HUD_BG") < 0)
-   {
-      ObjectCreate(0, "LZ_HUD_BG", OBJ_RECTANGLE_LABEL, 0, 0, 0);
-      bgCreated = true;
-   }
+string PctToText(const bool hasValue, const int pct)
+{
+   if (!hasValue)
+      return "N/A";
+   return IntegerToString(ClampInt(pct, 0, 100));
+}
 
-   if (ObjectFind(0, "LZ_HUD_ACCENT") < 0)
-      ObjectCreate(0, "LZ_HUD_ACCENT", OBJ_RECTANGLE_LABEL, 0, 0, 0);
+string StepToText(const double step)
+{
+   if (step < 0.0)
+      return "N/A";
+   return DoubleToString(step, MathMax(0, _Digits));
+}
 
-   if (ObjectFind(0, "LZ_HUD_BAR_BG") < 0)
-      ObjectCreate(0, "LZ_HUD_BAR_BG", OBJ_RECTANGLE_LABEL, 0, 0, 0);
+string DetailMetricText(const string key, const bool enabled, const double value)
+{
+   if (!enabled)
+      return StringFormat("%s N/A", key);
+   return StringFormat("%s %.2f", key, Clamp01(value));
+}
 
-   if (ObjectFind(0, "LZ_HUD_BAR_FILL") < 0)
-      ObjectCreate(0, "LZ_HUD_BAR_FILL", OBJ_RECTANGLE_LABEL, 0, 0, 0);
+color HUDDirectionColor(const int dir,
+                        const color upColor,
+                        const color downColor,
+                        const color neutralColor)
+{
+   if (dir > 0)
+      return upColor;
+   if (dir < 0)
+      return downColor;
+   return neutralColor;
+}
 
+color HUDRegimeColor(const HUDState &state,
+                     const color upColor,
+                     const color downColor,
+                     const color rangeColor,
+                     const color neutralColor)
+{
+   if (state.regime == REGIME_RANGE)
+      return rangeColor;
+   if (state.regime == REGIME_TREND)
+      return HUDDirectionColor(state.biasDir, upColor, downColor, neutralColor);
+   return neutralColor;
+}
+
+color HUDExhaustionColor(const bool hasValue,
+                         const int pct,
+                         const color naColor)
+{
+   if (!hasValue)
+      return naColor;
+   if (pct >= 70)
+      return (color)ColorToARGB(clrOrangeRed, 225);
+   if (pct >= 40)
+      return (color)ColorToARGB(clrOrange, 225);
+   return (color)ColorToARGB(clrGold, 225);
+}
+
+color HUDBreakQualityColor(const bool hasValue,
+                           const int pct,
+                           const color goodColor,
+                           const color warnColor,
+                           const color lowColor,
+                           const color naColor)
+{
+   if (!hasValue)
+      return naColor;
+   if (pct >= 70)
+      return goodColor;
+   if (pct >= 40)
+      return warnColor;
+   return lowColor;
+}
+
+color HUDZoneEnergyColor(const bool hasValue,
+                         const int pct,
+                         const color strongColor,
+                         const color softColor,
+                         const color naColor)
+{
+   if (!hasValue)
+      return naColor;
+   if (pct >= 65)
+      return strongColor;
+   return softColor;
+}
+
+color HUDStepSourceColor(const string stepSource,
+                         const color accentColor,
+                         const color naColor)
+{
+   if (stepSource == "N/A")
+      return naColor;
+   return accentColor;
+}
+
+void EnsureHUDRectangle(const string name)
+{
+   if (ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+}
+
+void EnsureHUDLabel(const string name)
+{
+   if (ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+}
+
+void DeleteLegacyHUDObjects()
+{
+   DeleteByPrefix("LZ_HUD_LINE_");
    ObjectDelete(0, "LZ_HUD_TXT");
-   ObjectDelete(0, "LZ_HUD_TITLE");
    ObjectDelete(0, "LZ_HUD_LINE1");
    ObjectDelete(0, "LZ_HUD_LINE2");
    ObjectDelete(0, "LZ_HUD_LINE3");
@@ -77,6 +155,109 @@ void EnsureHUDObjectsCreated()
    ObjectDelete(0, "LZ_HUD_DETAILS");
    ObjectDelete(0, "LZ_HUD_EBAR_BG");
    ObjectDelete(0, "LZ_HUD_EBAR_FILL");
+}
+
+void SetHUDRect(const string name,
+                const int x,
+                const int y,
+                const int w,
+                const int h,
+                const color bgColor,
+                const color borderColor,
+                const bool selectable)
+{
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_XSIZE, MathMax(0, w));
+   ObjectSetInteger(0, name, OBJPROP_YSIZE, MathMax(0, h));
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bgColor);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, borderColor);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, selectable);
+   if (!selectable)
+      ObjectSetInteger(0, name, OBJPROP_SELECTED, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+}
+
+void SetHUDLabel(const string name,
+                 const int x,
+                 const int y,
+                 const string text,
+                 const string font,
+                 const int fontSize,
+                 const color textColor)
+{
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTED, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetString(0, name, OBJPROP_FONT, font);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+}
+
+void EnsureHUDObjectsCreated()
+{
+   bool bgCreated = false;
+
+   EnsureHUDRectangle("LZ_HUD_SHADOW");
+   if (ObjectFind(0, "LZ_HUD_BG") < 0)
+   {
+      ObjectCreate(0, "LZ_HUD_BG", OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      bgCreated = true;
+   }
+   EnsureHUDRectangle("LZ_HUD_ACCENT");
+
+   EnsureHUDRectangle("LZ_HUD_ICON_BG");
+   EnsureHUDRectangle("LZ_HUD_ICON_1");
+   EnsureHUDRectangle("LZ_HUD_ICON_2");
+   EnsureHUDRectangle("LZ_HUD_ICON_3");
+   EnsureHUDLabel("LZ_HUD_TITLE");
+   EnsureHUDRectangle("LZ_HUD_VERSION_BG");
+   EnsureHUDLabel("LZ_HUD_VERSION_TXT");
+
+   EnsureHUDRectangle("LZ_HUD_DIVIDER_TOP");
+   EnsureHUDRectangle("LZ_HUD_DIVIDER_MID");
+   EnsureHUDRectangle("LZ_HUD_DIVIDER_BOTTOM");
+   EnsureHUDRectangle("LZ_HUD_VSEP_1");
+   EnsureHUDRectangle("LZ_HUD_VSEP_2");
+   EnsureHUDRectangle("LZ_HUD_VSEP_3");
+   EnsureHUDRectangle("LZ_HUD_VSEP_MID");
+
+   EnsureHUDLabel("LZ_HUD_LBL_REGIME");
+   EnsureHUDLabel("LZ_HUD_VAL_REGIME");
+   EnsureHUDLabel("LZ_HUD_LBL_BIAS");
+   EnsureHUDLabel("LZ_HUD_VAL_BIAS");
+   EnsureHUDLabel("LZ_HUD_LBL_MICRO");
+   EnsureHUDLabel("LZ_HUD_VAL_MICRO");
+   EnsureHUDLabel("LZ_HUD_LBL_STRENGTH");
+   EnsureHUDLabel("LZ_HUD_VAL_STRENGTH");
+   EnsureHUDRectangle("LZ_HUD_BAR_BG");
+   EnsureHUDRectangle("LZ_HUD_BAR_FILL");
+
+   EnsureHUDLabel("LZ_HUD_LBL_EXHAUST");
+   EnsureHUDLabel("LZ_HUD_VAL_EXHAUST");
+   EnsureHUDLabel("LZ_HUD_LBL_BREAKQ");
+   EnsureHUDLabel("LZ_HUD_VAL_BREAKQ");
+   EnsureHUDLabel("LZ_HUD_LBL_STEP");
+   EnsureHUDLabel("LZ_HUD_VAL_STEP");
+   EnsureHUDLabel("LZ_HUD_LBL_STEPSRC");
+   EnsureHUDLabel("LZ_HUD_VAL_STEPSRC");
+   EnsureHUDLabel("LZ_HUD_LBL_ENERGY");
+   EnsureHUDLabel("LZ_HUD_VAL_ENERGY");
+
+   EnsureHUDRectangle("LZ_HUD_DETAILS_ICON");
+   EnsureHUDLabel("LZ_HUD_DETAILS_TXT");
+   EnsureHUDLabel("LZ_HUD_DETAILS_R2");
+   EnsureHUDLabel("LZ_HUD_DETAILS_ER");
+   EnsureHUDLabel("LZ_HUD_DETAILS_S");
+
+   DeleteLegacyHUDObjects();
 
    if (bgCreated)
    {
@@ -98,26 +279,312 @@ void EnsureHUDObjectsCreated()
    ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_SELECTABLE, InpHUDDraggable);
 }
 
+void RenderHUDBase(const int x,
+                   const int y,
+                   const int panelW,
+                   const int panelH,
+                   const color shadowColor,
+                   const color panelBgColor,
+                   const color accentColor)
+{
+   SetHUDRect("LZ_HUD_SHADOW",
+              x + 6,
+              y + 8,
+              panelW,
+              panelH,
+              shadowColor,
+              (color)clrNONE,
+              false);
+
+   SetHUDRect("LZ_HUD_BG",
+              x,
+              y,
+              panelW,
+              panelH,
+              panelBgColor,
+              (color)clrNONE,
+              InpHUDDraggable);
+   if (!InpHUDDraggable)
+      ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_SELECTED, false);
+
+   SetHUDRect("LZ_HUD_ACCENT",
+              x + HUD_SIDE_PADDING,
+              y + 11,
+              MathMax(12, panelW - 2 * HUD_SIDE_PADDING),
+              3,
+              accentColor,
+              (color)clrNONE,
+              false);
+}
+
+void RenderHUDHeader(const int x,
+                     const int headerY,
+                     const int panelW,
+                     const int dividerTopY,
+                     const color iconBgColor,
+                     const color iconBarColor,
+                     const color titleColor,
+                     const color badgeBgColor,
+                     const color badgeBorderColor,
+                     const color badgeTextColor,
+                     const color dividerColor,
+                     const int titleFontSize,
+                     const int badgeFontSize)
+{
+   const int contentX = x + HUD_SIDE_PADDING;
+   const int iconSize = 30;
+   const int iconX = contentX;
+   const int iconY = headerY + 6;
+   const int titleX = iconX + iconSize + 14;
+   const int titleY = headerY + 7;
+   const int badgeW = 68;
+   const int badgeH = 24;
+   const int badgeX = x + panelW - HUD_SIDE_PADDING - badgeW;
+   const int badgeY = headerY + 9;
+
+   SetHUDRect("LZ_HUD_ICON_BG", iconX, iconY, iconSize, iconSize, iconBgColor, (color)clrNONE, false);
+   SetHUDRect("LZ_HUD_ICON_1", iconX + 7, iconY + 8, 16, 2, iconBarColor, (color)clrNONE, false);
+   SetHUDRect("LZ_HUD_ICON_2", iconX + 7, iconY + 14, 12, 2, iconBarColor, (color)clrNONE, false);
+   SetHUDRect("LZ_HUD_ICON_3", iconX + 7, iconY + 20, 18, 2, iconBarColor, (color)clrNONE, false);
+
+   SetHUDLabel("LZ_HUD_TITLE",
+               titleX,
+               titleY,
+               HUDDisplayTitle(),
+               "Segoe UI Semibold",
+               titleFontSize,
+               titleColor);
+
+   SetHUDRect("LZ_HUD_VERSION_BG",
+              badgeX,
+              badgeY,
+              badgeW,
+              badgeH,
+              badgeBgColor,
+              badgeBorderColor,
+              false);
+   SetHUDLabel("LZ_HUD_VERSION_TXT",
+               badgeX + 17,
+               badgeY + 4,
+               HUDDisplayVersion(),
+               "Segoe UI Semibold",
+               badgeFontSize,
+               badgeTextColor);
+
+   SetHUDRect("LZ_HUD_DIVIDER_TOP",
+              contentX,
+              dividerTopY,
+              MathMax(12, panelW - 2 * HUD_SIDE_PADDING),
+              HUD_DIVIDER_THICKNESS,
+              dividerColor,
+              (color)clrNONE,
+              false);
+}
+
+void RenderHUDTopGrid(const int x,
+                      const int panelW,
+                      const int topGridY,
+                      const int topGridH,
+                      const int dividerMidY,
+                      const string regimeText,
+                      const string biasText,
+                      const string microText,
+                      const int strengthPct,
+                      const color labelColor,
+                      const color regimeColor,
+                      const color biasColor,
+                      const color microColor,
+                      const color strengthColor,
+                      const color dividerColor,
+                      const color barBgColor,
+                      const color barFillColor,
+                      const int labelFontSize,
+                      const int valueFontSize,
+                      const int strengthFontSize)
+{
+   const int contentX = x + HUD_SIDE_PADDING;
+   const int contentW = MathMax(16, panelW - 2 * HUD_SIDE_PADDING);
+   const int colW = contentW / 4;
+   const int colPad = 10;
+   const int labelY = topGridY + 2;
+   const int valueY = topGridY + 28;
+   const int strengthValueY = topGridY + 14;
+   const int sepY = topGridY + 2;
+   const int sepH = MathMax(10, topGridH - 4);
+
+   SetHUDRect("LZ_HUD_VSEP_1", contentX + colW, sepY, 1, sepH, dividerColor, (color)clrNONE, false);
+   SetHUDRect("LZ_HUD_VSEP_2", contentX + 2 * colW, sepY, 1, sepH, dividerColor, (color)clrNONE, false);
+   SetHUDRect("LZ_HUD_VSEP_3", contentX + 3 * colW, sepY, 1, sepH, dividerColor, (color)clrNONE, false);
+
+   SetHUDLabel("LZ_HUD_LBL_REGIME", contentX + colPad, labelY, "REGIME", "Segoe UI", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_VAL_REGIME", contentX + colPad, valueY, regimeText, "Segoe UI Semibold", valueFontSize, regimeColor);
+
+   SetHUDLabel("LZ_HUD_LBL_BIAS", contentX + colW + colPad, labelY, "BIAS", "Segoe UI", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_VAL_BIAS", contentX + colW + colPad, valueY, biasText, "Segoe UI Semibold", valueFontSize, biasColor);
+
+   SetHUDLabel("LZ_HUD_LBL_MICRO", contentX + 2 * colW + colPad, labelY, "MICROTREND", "Segoe UI", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_VAL_MICRO", contentX + 2 * colW + colPad, valueY, microText, "Segoe UI Semibold", valueFontSize, microColor);
+
+   const int strengthX = contentX + 3 * colW + colPad;
+   const int strengthBarY = topGridY + 54;
+   const int strengthBarW = MathMax(16, colW - 2 * colPad - 2);
+   const int strengthBarH = HUDBarHeight();
+   int strengthFillW = (int)MathRound((double)strengthBarW * Clamp01((double)strengthPct / 100.0));
+   if (strengthPct > 0 && strengthFillW < 1)
+      strengthFillW = 1;
+
+   SetHUDLabel("LZ_HUD_LBL_STRENGTH", strengthX, labelY, "STRENGTH", "Segoe UI", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_VAL_STRENGTH",
+               strengthX,
+               strengthValueY,
+               IntegerToString(ClampInt(strengthPct, 0, 100)),
+               "Segoe UI Semibold",
+               strengthFontSize,
+               strengthColor);
+
+   SetHUDRect("LZ_HUD_BAR_BG",
+              strengthX,
+              strengthBarY,
+              strengthBarW,
+              strengthBarH,
+              barBgColor,
+              (color)clrNONE,
+              false);
+   SetHUDRect("LZ_HUD_BAR_FILL",
+              strengthX,
+              strengthBarY,
+              MathMin(strengthBarW, MathMax(0, strengthFillW)),
+              strengthBarH,
+              barFillColor,
+              (color)clrNONE,
+              false);
+
+   SetHUDRect("LZ_HUD_DIVIDER_MID",
+              contentX,
+              dividerMidY,
+              MathMax(12, contentW),
+              HUD_DIVIDER_THICKNESS,
+              dividerColor,
+              (color)clrNONE,
+              false);
+}
+
+void RenderHUDMiddleGrid(const int x,
+                         const int panelW,
+                         const int middleGridY,
+                         const int middleGridH,
+                         const int dividerBottomY,
+                         const string exhaustText,
+                         const string breakText,
+                         const string stepText,
+                         const string stepSourceText,
+                         const string energyText,
+                         const color labelColor,
+                         const color exhaustColor,
+                         const color breakColor,
+                         const color stepColor,
+                         const color stepSourceColor,
+                         const color energyColor,
+                         const color dividerColor,
+                         const int labelFontSize,
+                         const int valueFontSize,
+                         const int smallValueFontSize)
+{
+   const int contentX = x + HUD_SIDE_PADDING;
+   const int contentW = MathMax(16, panelW - 2 * HUD_SIDE_PADDING);
+   const int colGap = 18;
+   const int colW = MathMax(20, (contentW - colGap) / 2);
+   const int leftX = contentX;
+   const int rightX = contentX + colW + colGap;
+   const int midSepX = contentX + colW + (colGap / 2);
+   const int valueOffset = MathMax(122, colW - 120);
+   const int stretch = MathMax(0, middleGridH - HUD_MIDDLE_GRID_BASE_HEIGHT);
+
+   const int leftRow1Y = middleGridY + 0;
+   const int leftRow2Y = middleGridY + 24 + (stretch / 3);
+   const int leftRow3Y = middleGridY + 48 + ((2 * stretch) / 3);
+   const int rightRow1Y = middleGridY + 8;
+   const int rightRow2Y = middleGridY + 42 + (stretch / 2);
+
+   SetHUDRect("LZ_HUD_VSEP_MID",
+              midSepX,
+              middleGridY + 2,
+              1,
+              MathMax(10, middleGridH - 4),
+              dividerColor,
+              (color)clrNONE,
+              false);
+
+   SetHUDLabel("LZ_HUD_LBL_EXHAUST", leftX, leftRow1Y, "TREND EXHAUSTION", "Segoe UI", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_VAL_EXHAUST", leftX + valueOffset, leftRow1Y - 1, exhaustText, "Segoe UI Semibold", valueFontSize, exhaustColor);
+
+   SetHUDLabel("LZ_HUD_LBL_BREAKQ", leftX, leftRow2Y, "BREAK QUALITY", "Segoe UI", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_VAL_BREAKQ", leftX + valueOffset, leftRow2Y - 1, breakText, "Segoe UI Semibold", valueFontSize, breakColor);
+
+   SetHUDLabel("LZ_HUD_LBL_STEP", leftX, leftRow3Y, "STEP", "Segoe UI", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_VAL_STEP", leftX + valueOffset, leftRow3Y - 1, stepText, "Segoe UI Semibold", smallValueFontSize, stepColor);
+
+   SetHUDLabel("LZ_HUD_LBL_STEPSRC", rightX, rightRow1Y, "STEP SRC", "Segoe UI", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_VAL_STEPSRC", rightX + valueOffset, rightRow1Y - 1, stepSourceText, "Segoe UI Semibold", smallValueFontSize, stepSourceColor);
+
+   SetHUDLabel("LZ_HUD_LBL_ENERGY", rightX, rightRow2Y, "ZONE ENERGY", "Segoe UI", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_VAL_ENERGY", rightX + valueOffset, rightRow2Y - 1, energyText, "Segoe UI Semibold", valueFontSize, energyColor);
+
+   SetHUDRect("LZ_HUD_DIVIDER_BOTTOM",
+              contentX,
+              dividerBottomY,
+              MathMax(12, contentW),
+              HUD_DIVIDER_THICKNESS,
+              dividerColor,
+              (color)clrNONE,
+              false);
+}
+
+void RenderHUDFooter(const int x,
+                     const int panelW,
+                     const int footerY,
+                     const string r2Text,
+                     const string erText,
+                     const string sText,
+                     const color detailsIconColor,
+                     const color labelColor,
+                     const color detailValueColor,
+                     const int labelFontSize,
+                     const int detailFontSize)
+{
+   const int contentX = x + HUD_SIDE_PADDING;
+   const int contentW = MathMax(16, panelW - 2 * HUD_SIDE_PADDING);
+   const int iconY = footerY + 6;
+   const int iconSize = 10;
+   const int detailsX = contentX + 16;
+   const int metricW = 68;
+   const int metricGap = 14;
+   const int metricsStartX = contentX + MathMax(130, contentW - (metricW * 3 + metricGap * 2));
+
+   SetHUDRect("LZ_HUD_DETAILS_ICON",
+              contentX,
+              iconY,
+              iconSize,
+              iconSize,
+              detailsIconColor,
+              (color)clrNONE,
+              false);
+   SetHUDLabel("LZ_HUD_DETAILS_TXT", detailsX, footerY + 1, "DETAILS", "Segoe UI Semibold", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_DETAILS_R2", metricsStartX, footerY, r2Text, "Segoe UI Semibold", detailFontSize, detailValueColor);
+   SetHUDLabel("LZ_HUD_DETAILS_ER", metricsStartX + metricW + metricGap, footerY, erText, "Segoe UI Semibold", detailFontSize, detailValueColor);
+   SetHUDLabel("LZ_HUD_DETAILS_S", metricsStartX + 2 * (metricW + metricGap), footerY, sText, "Segoe UI Semibold", detailFontSize, detailValueColor);
+}
+
 void DeleteTrendHUD()
 {
-   ObjectDelete(0, "LZ_HUD_SHADOW");
-   ObjectDelete(0, "LZ_HUD_BG");
-   ObjectDelete(0, "LZ_HUD_ACCENT");
-   ObjectDelete(0, "LZ_HUD_BAR_BG");
-   ObjectDelete(0, "LZ_HUD_BAR_FILL");
-   for (int i = 0; i < HUD_MAX_LINES; ++i)
-      ObjectDelete(0, HUDLineName(i));
+   for (int i = 0; i < HUD_OBJECT_COUNT; ++i)
+   {
+      const string name = HUDObjectName(i);
+      if (StringLen(name) > 0)
+         ObjectDelete(0, name);
+   }
 
-   ObjectDelete(0, "LZ_HUD_TXT");
-   ObjectDelete(0, "LZ_HUD_TITLE");
-   ObjectDelete(0, "LZ_HUD_LINE1");
-   ObjectDelete(0, "LZ_HUD_LINE2");
-   ObjectDelete(0, "LZ_HUD_LINE3");
-   ObjectDelete(0, "LZ_HUD_LINE4");
-   ObjectDelete(0, "LZ_HUD_LINE5");
-   ObjectDelete(0, "LZ_HUD_DETAILS");
-   ObjectDelete(0, "LZ_HUD_EBAR_BG");
-   ObjectDelete(0, "LZ_HUD_EBAR_FILL");
+   DeleteLegacyHUDObjects();
 }
 
 void RenderTrendHUD(const HUDState &state)
@@ -127,94 +594,8 @@ void RenderTrendHUD(const HUDState &state)
    if (InpHUDDraggable && !g_hud_is_dragging && g_hud_user_moved)
       SyncHUDPositionFromObject();
 
-   const int corner = CORNER_LEFT_UPPER;
-   const int fontSize = MathMax(7, InpHUDFontSize);
-   const int titleFontSize = MathMax(6, fontSize - 1);
-   const int detailFontSize = MathMax(6, fontSize - 1);
-   const int PAD_X = 12;
-   const int PAD_TOP = 10;
-   const int LINE_H = 18;
-   const int PAD_BOTTOM = 12;
-   const int GAP_TEXT_BAR = 10;
-   const int BAR_H = HUDBarHeight();
-   const int SHADOW_OFFSET = 2;
-   const int ACCENT_H = 2;
-
-   int aMin = ClampInt(InpHUDAlphaMin, 0, 255);
-   int aMax = ClampInt(InpHUDAlphaMax, 0, 255);
-   if (aMax < aMin)
-   {
-      int t = aMin;
-      aMin = aMax;
-      aMax = t;
-   }
-   const int alpha = ClampInt((int)MathRound(aMin + (aMax - aMin) * Clamp01(state.strength01)), 0, 255);
-
-   const string regimeText = (state.regime == REGIME_RANGE ? "RANGE" : (state.regime == REGIME_TREND ? "TREND" : "MIXED"));
-   const string biasText = DirectionToText(state.biasDir);
-   const string microText = DirectionToText(state.microDir);
-   const int strengthPct = (int)MathRound(Clamp01(state.strength01) * 100.0);
-
-   color base = clrSilver;
-   if (state.regime != REGIME_MIXED)
-   {
-      if (state.biasDir > 0)
-         base = clrLimeGreen;
-      else if (state.biasDir < 0)
-         base = clrTomato;
-   }
-
-   const color titleColor = (color)ColorToARGB(clrSilver, 180);
-   const color primaryColor = (color)ColorToARGB(base, (uchar)ClampInt(190 + (alpha / 6), 190, 230));
-   const color secondaryColor = (color)ColorToARGB(clrSilver, 210);
-   const color mutedColor = (color)ColorToARGB(clrSilver, 165);
-   const color panelBgColor = (color)ColorToARGB(clrBlack, 45);
-   const color shadowColor = (color)ColorToARGB(clrBlack, 20);
-   const color accentColor = (color)ColorToARGB(base, (uchar)ClampInt(95 + (alpha / 5), 95, 145));
-   const color barBgColor = (color)ColorToARGB(clrDimGray, 70);
-   const color activeColor = (color)ColorToARGB(base, (uchar)ClampInt(185 + (alpha / 5), 185, 235));
-
-   string lines[];
-   ArrayResize(lines, 0);
-   AppendHUDLine(lines, "MarketRegime Zones v2.14");
-   AppendHUDLine(lines, StringFormat("REGIME: %s", regimeText));
-   if (InpShowBiasAndMicrotrend)
-   {
-      AppendHUDLine(lines, StringFormat("BIAS: %s", biasText));
-      AppendHUDLine(lines, StringFormat("MICROTREND: %s", microText));
-   }
-   else
-   {
-      AppendHUDLine(lines, StringFormat("DIR: %s", biasText));
-   }
-   AppendHUDLine(lines, StringFormat("STRENGTH: %d", strengthPct));
-   if (state.hasTrendExhaustion)
-      AppendHUDLine(lines, StringFormat("TREND EXHAUSTION: %d", ClampInt(state.trendExhaustionPct, 0, 100)));
-   else
-      AppendHUDLine(lines, "TREND EXHAUSTION: N/A");
-   if (state.hasBreakQuality)
-      AppendHUDLine(lines, StringFormat("BREAK QUALITY: %d", ClampInt(state.breakQualityPct, 0, 100)));
-   else
-      AppendHUDLine(lines, "BREAK QUALITY: N/A");
-   if (state.step >= 0.0)
-      AppendHUDLine(lines, StringFormat("STEP: %s", DoubleToString(state.step, MathMax(0, _Digits))));
-   else
-      AppendHUDLine(lines, "STEP: N/A");
-   AppendHUDLine(lines, StringFormat("STEP SRC: %s", state.stepSource));
-   if (InpEnableZoneEnergy)
-   {
-      if (state.hasZoneEnergy)
-         AppendHUDLine(lines, StringFormat("ZONE ENERGY: %d", ClampInt(state.zoneEnergyPct, 0, 100)));
-      else
-         AppendHUDLine(lines, "ZONE ENERGY: N/A");
-   }
-   if (InpShowTrendDetails)
-      AppendHUDLine(lines, StringFormat("R2: %.2f  ER: %.2f  S: %.2f", Clamp01(state.r2), Clamp01(state.er), Clamp01(state.slope01)));
-
-   const int linesCount = ArraySize(lines);
    const int panelW = HUDPanelWidth();
-   const int textBlockH = PAD_TOP + linesCount * LINE_H;
-   const int panelH = MathMax(MathMax(0, InpHUDHeight), textBlockH + GAP_TEXT_BAR + BAR_H + PAD_BOTTOM);
+   const int panelH = HUDPanelHeight();
    if (!g_hud_user_moved)
    {
       g_hud_x = HUDDefaultX(panelW);
@@ -224,148 +605,158 @@ void RenderTrendHUD(const HUDState &state)
 
    const int x = MathMax(0, g_hud_x);
    const int y = MathMax(0, g_hud_y);
-   const int textX = x + PAD_X;
-   const int barW = MathMax(10, panelW - 2 * PAD_X);
-   const int barX = x + PAD_X;
-   int barY = y + panelH - PAD_BOTTOM - BAR_H;
-   const int minBarY = y + PAD_TOP + linesCount * LINE_H + GAP_TEXT_BAR;
-   if (barY < minBarY)
-      barY = minBarY;
+   const int extraH = MathMax(0, panelH - HUDMinimumPanelHeight());
+   const int middleGridH = HUD_MIDDLE_GRID_BASE_HEIGHT + extraH;
 
-   if (!g_hud_is_dragging)
+   const int headerY = y + HUD_TOP_PADDING;
+   const int dividerTopY = headerY + HUD_HEADER_HEIGHT;
+   const int topGridY = dividerTopY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
+   const int dividerMidY = topGridY + HUD_TOP_GRID_HEIGHT + HUD_SECTION_GAP;
+   const int middleGridY = dividerMidY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
+   const int dividerBottomY = middleGridY + middleGridH + HUD_SECTION_GAP;
+   const int footerY = dividerBottomY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
+
+   int aMin = ClampInt(InpHUDAlphaMin, 0, 255);
+   int aMax = ClampInt(InpHUDAlphaMax, 0, 255);
+   if (aMax < aMin)
    {
-      ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_CORNER, corner);
-      ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_XDISTANCE, x + SHADOW_OFFSET);
-      ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_YDISTANCE, y + SHADOW_OFFSET);
-      ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_CORNER, corner);
-      ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_XDISTANCE, x);
-      ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_YDISTANCE, y);
+      const int t = aMin;
+      aMin = aMax;
+      aMax = t;
    }
+   const int alpha = ClampInt((int)MathRound(aMin + (aMax - aMin) * Clamp01(state.strength01)), 0, 255);
 
-   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_XSIZE, panelW);
-   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_YSIZE, panelH);
-   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_COLOR, (color)clrNONE);
-   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_BGCOLOR, shadowColor);
-   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_BACK, false);
-   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, "LZ_HUD_SHADOW", OBJPROP_HIDDEN, true);
+   const bool showBiasAndMicro = InpShowBiasAndMicrotrend;
+   const bool showDetails = InpShowTrendDetails;
 
-   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_CORNER, corner);
-   if (!g_hud_is_dragging)
-   {
-      ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_XDISTANCE, x);
-      ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_YDISTANCE, y);
-   }
-   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_XSIZE, panelW);
-   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_YSIZE, panelH);
-   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_COLOR, (color)clrNONE);
-   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_BGCOLOR, panelBgColor);
-   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_BACK, false);
-   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_SELECTABLE, InpHUDDraggable);
-   if (!InpHUDDraggable)
-      ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_SELECTED, false);
-   ObjectSetInteger(0, "LZ_HUD_BG", OBJPROP_HIDDEN, true);
+   const string regimeText = RegimeToText(state.regime);
+   const string biasText = (showBiasAndMicro ? DirectionToText(state.biasDir) : "N/A");
+   const string microText = (showBiasAndMicro ? DirectionToText(state.microDir) : "N/A");
+   const int strengthPct = ClampInt((int)MathRound(Clamp01(state.strength01) * 100.0), 0, 100);
+   const string exhaustText = PctToText(state.hasTrendExhaustion, state.trendExhaustionPct);
+   const string breakText = PctToText(state.hasBreakQuality, state.breakQualityPct);
+   const string stepText = StepToText(state.step);
+   const string stepSourceText = (state.step >= 0.0 && StringLen(state.stepSource) > 0 ? state.stepSource : "N/A");
+   const string energyText = PctToText(InpEnableZoneEnergy && state.hasZoneEnergy, state.zoneEnergyPct);
+   const string r2Text = DetailMetricText("R2", showDetails, state.r2);
+   const string erText = DetailMetricText("ER", showDetails, state.er);
+   const string sText = DetailMetricText("S", showDetails, state.slope01);
 
-   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_XSIZE, panelW);
-   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_YSIZE, ACCENT_H);
-   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_COLOR, (color)clrNONE);
-   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_BGCOLOR, accentColor);
-   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_BACK, false);
-   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, "LZ_HUD_ACCENT", OBJPROP_HIDDEN, true);
+   const color shadowColor = (color)ColorToARGB(clrBlack, (uchar)ClampInt(16 + (alpha / 16), 16, 32));
+   const color panelBgColor = (color)ColorToARGB(clrMidnightBlue, (uchar)ClampInt(96 + (alpha / 6), 96, 138));
+   const color accentColor = (color)ColorToARGB(clrDeepSkyBlue, (uchar)ClampInt(128 + (alpha / 4), 128, 188));
+   const color dividerColor = (color)ColorToARGB(clrLightSteelBlue, 42);
+   const color titleColor = (color)ColorToARGB(clrWhiteSmoke, 235);
+   const color badgeBgColor = (color)ColorToARGB(clrDarkSlateBlue, 145);
+   const color badgeBorderColor = (color)ColorToARGB(clrDeepSkyBlue, 52);
+   const color badgeTextColor = (color)ColorToARGB(clrAliceBlue, 222);
+   const color iconBgColor = (color)ColorToARGB(clrDodgerBlue, 165);
+   const color iconBarColor = (color)ColorToARGB(clrAliceBlue, 224);
+   const color labelColor = (color)ColorToARGB(clrSilver, 178);
+   const color neutralValueColor = (color)ColorToARGB(clrGainsboro, 214);
+   const color upColor = (color)ColorToARGB(clrAquamarine, 224);
+   const color downColor = (color)ColorToARGB(clrTomato, 222);
+   const color rangeColor = (color)ColorToARGB(clrLightSkyBlue, 218);
+   const color strengthColor = (color)ColorToARGB(clrAliceBlue, 230);
+   const color barBgColor = (color)ColorToARGB(clrSlateGray, 95);
+   const color barFillColor = (color)ColorToARGB(clrDeepSkyBlue, 224);
+   const color warnColor = (color)ColorToARGB(clrGold, 224);
+   const color stepColor = (color)ColorToARGB(clrLightSkyBlue, 226);
+   const color stepSourceAccent = (color)ColorToARGB(clrMediumPurple, 220);
+   const color energySoftColor = (color)ColorToARGB(clrPowderBlue, 214);
+   const color detailValueColor = (color)ColorToARGB(clrSilver, 204);
 
-   for (int i = 0; i < linesCount; ++i)
-   {
-      const string name = HUDLineName(i);
-      if (ObjectFind(0, name) < 0)
-         ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+   const color regimeColor = HUDRegimeColor(state, upColor, downColor, rangeColor, neutralValueColor);
+   const color biasColor = (showBiasAndMicro ? HUDDirectionColor(state.biasDir, upColor, downColor, neutralValueColor) : neutralValueColor);
+   const color microColor = (showBiasAndMicro ? HUDDirectionColor(state.microDir, upColor, downColor, neutralValueColor) : neutralValueColor);
+   const color exhaustColor = HUDExhaustionColor(state.hasTrendExhaustion, state.trendExhaustionPct, neutralValueColor);
+   const color breakColor = HUDBreakQualityColor(state.hasBreakQuality,
+                                                 state.breakQualityPct,
+                                                 upColor,
+                                                 warnColor,
+                                                 downColor,
+                                                 neutralValueColor);
+   const color stepSourceColor = HUDStepSourceColor(stepSourceText, stepSourceAccent, neutralValueColor);
+   const color energyColor = HUDZoneEnergyColor(InpEnableZoneEnergy && state.hasZoneEnergy,
+                                                state.zoneEnergyPct,
+                                                upColor,
+                                                energySoftColor,
+                                                neutralValueColor);
 
-      color lineColor = secondaryColor;
-      int lineFontSize = fontSize;
-      if (i == 0)
-      {
-         lineColor = titleColor;
-         lineFontSize = titleFontSize;
-      }
-      else if (IsDetailsHUDLine(lines[i]))
-      {
-         lineColor = mutedColor;
-         lineFontSize = detailFontSize;
-      }
-      else if (IsPrimaryHUDLine(lines[i]))
-      {
-         lineColor = primaryColor;
-         if (HUDTextStartsWith(lines[i], "STRENGTH:"))
-            lineFontSize = fontSize + 1;
-      }
+   const int baseFont = MathMax(9, InpHUDFontSize);
+   const int labelFontSize = MathMax(8, baseFont - 1);
+   const int valueFontSize = baseFont + 3;
+   const int smallValueFontSize = baseFont + 1;
+   const int strengthFontSize = baseFont + 8;
+   const int titleFontSize = baseFont + 3;
+   const int badgeFontSize = MathMax(8, baseFont - 1);
+   const int detailFontSize = MathMax(9, baseFont);
 
-      ObjectSetInteger(0, name, OBJPROP_CORNER, corner);
-      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, textX);
-      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y + PAD_TOP + i * LINE_H);
-      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, lineFontSize);
-      ObjectSetInteger(0, name, OBJPROP_COLOR, lineColor);
-      ObjectSetInteger(0, name, OBJPROP_BACK, false);
-      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-      ObjectSetString(0, name, OBJPROP_FONT, "Segoe UI");
-      ObjectSetString(0, name, OBJPROP_TEXT, lines[i]);
-   }
-
-   for (int i = linesCount; i < HUD_MAX_LINES; ++i)
-   {
-      const string name = HUDLineName(i);
-      if (ObjectFind(0, name) >= 0)
-         ObjectDelete(0, name);
-   }
-
-   ObjectDelete(0, "LZ_HUD_TXT");
-   ObjectDelete(0, "LZ_HUD_TITLE");
-   ObjectDelete(0, "LZ_HUD_LINE1");
-   ObjectDelete(0, "LZ_HUD_LINE2");
-   ObjectDelete(0, "LZ_HUD_LINE3");
-   ObjectDelete(0, "LZ_HUD_LINE4");
-   ObjectDelete(0, "LZ_HUD_LINE5");
-   ObjectDelete(0, "LZ_HUD_DETAILS");
-   ObjectDelete(0, "LZ_HUD_EBAR_BG");
-   ObjectDelete(0, "LZ_HUD_EBAR_FILL");
-
-   if (!g_hud_is_dragging)
-   {
-      ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_CORNER, corner);
-      ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_XDISTANCE, barX);
-      ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_YDISTANCE, barY);
-   }
-   ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_XSIZE, barW);
-   ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_YSIZE, BAR_H);
-   ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_COLOR, (color)clrNONE);
-   ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_BGCOLOR, barBgColor);
-   ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_BACK, false);
-   ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, "LZ_HUD_BAR_BG", OBJPROP_HIDDEN, true);
-
-   int fillW = (int)MathRound((double)barW * Clamp01(state.strength01));
-   if (state.strength01 > 0.0 && fillW < 1)
-      fillW = 1;
-   if (fillW < 0)
-      fillW = 0;
-
-   color fillColor = activeColor;
-   if (state.strength01 <= 0.0)
-      fillColor = (color)ColorToARGB(base, 0);
-
-   if (!g_hud_is_dragging)
-   {
-      ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_CORNER, corner);
-      ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_XDISTANCE, barX);
-      ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_YDISTANCE, barY);
-   }
-   ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_XSIZE, MathMin(fillW, barW));
-   ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_YSIZE, BAR_H);
-   ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_COLOR, (color)clrNONE);
-   ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_BGCOLOR, fillColor);
-   ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_BACK, false);
-   ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, "LZ_HUD_BAR_FILL", OBJPROP_HIDDEN, true);
+   RenderHUDBase(x, y, panelW, panelH, shadowColor, panelBgColor, accentColor);
+   RenderHUDHeader(x,
+                   headerY,
+                   panelW,
+                   dividerTopY,
+                   iconBgColor,
+                   iconBarColor,
+                   titleColor,
+                   badgeBgColor,
+                   badgeBorderColor,
+                   badgeTextColor,
+                   dividerColor,
+                   titleFontSize,
+                   badgeFontSize);
+   RenderHUDTopGrid(x,
+                    panelW,
+                    topGridY,
+                    HUD_TOP_GRID_HEIGHT,
+                    dividerMidY,
+                    regimeText,
+                    biasText,
+                    microText,
+                    strengthPct,
+                    labelColor,
+                    regimeColor,
+                    biasColor,
+                    microColor,
+                    strengthColor,
+                    dividerColor,
+                    barBgColor,
+                    barFillColor,
+                    labelFontSize,
+                    valueFontSize,
+                    strengthFontSize);
+   RenderHUDMiddleGrid(x,
+                       panelW,
+                       middleGridY,
+                       middleGridH,
+                       dividerBottomY,
+                       exhaustText,
+                       breakText,
+                       stepText,
+                       stepSourceText,
+                       energyText,
+                       labelColor,
+                       exhaustColor,
+                       breakColor,
+                       stepColor,
+                       stepSourceColor,
+                       energyColor,
+                       dividerColor,
+                       labelFontSize,
+                       valueFontSize,
+                       smallValueFontSize);
+   RenderHUDFooter(x,
+                   panelW,
+                   footerY,
+                   r2Text,
+                   erText,
+                   sText,
+                   accentColor,
+                   labelColor,
+                   detailValueColor,
+                   labelFontSize,
+                   detailFontSize);
 }
 
 #endif
