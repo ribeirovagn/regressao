@@ -4,7 +4,11 @@ A statistical, price-only market regime engine for MetaTrader 5.
 
 MarketRegime Zones is an MQL5 indicator that interprets market structure through price-only statistics instead of traditional indicators. It detects ranges, breakouts, structural bias, microtrend, trend strength, exhaustion, and breakout quality through projected zones and a compact real-time HUD, making it useful both for discretionary chart reading and for regime-based research workflows.
 
-![MarketRegime Zones on XAUUSD M1](assets/xauusd_m1.png)
+## Visual Examples
+
+![MarketRegime Zones HUD](assets/HUD.png)
+
+![MarketRegime Zones on Chart](assets/MarketRegime.png)
 
 ## Highlights
 
@@ -12,7 +16,7 @@ MarketRegime Zones is an MQL5 indicator that interprets market structure through
 - Range and breakout zone detection
 - Trend strength, exhaustion, and break quality
 - Horizontal projection levels from recent zone structure
-- Premium draggable HUD with dashboard-style sections and live metrics
+- Compact premium HUD for FHD multi-chart use
 - Built for discretionary trading and future ML-oriented workflows
 
 ## Why it's different
@@ -28,7 +32,7 @@ Most MT5 indicators summarize price through moving averages, oscillators, or mom
 - Renders zones with duration-based transparency and border width driven by average range score.
 - Optionally extends a zone until breakout and can draw the zone midline.
 - Projects horizontal levels from the most relevant recent zone in active-mode rendering.
-- Shows a premium draggable HUD with a modern header, four-column top grid, two-column metrics grid, strength bar, and footer details for `R2 / ER / S`.
+- Shows a compact premium HUD with a modern header, four-column top grid, two-column metrics grid, strength bar, and footer details for `R2 / ER / S`.
 - Keeps the dashboard layout stable even when some fields are disabled, using `N/A` instead of collapsing sections.
 - Calculates `TREND STRENGTH` from normalized slope, `R2`, and Efficiency Ratio (`ER`).
 - Calculates `TREND EXHAUSTION` from distance to zone mid, short-window strength drop, and short-window noise.
@@ -38,7 +42,7 @@ Most MT5 indicators summarize price through moving averages, oscillators, or mom
 
 ## HUD Interpretation
 
-The HUD is designed to be read in a few seconds, not treated as a full control panel. The current layout is a fixed premium card: header, top grid, middle metrics grid, and footer details.
+The HUD is designed to be read in a few seconds, not treated as a full control panel. The current layout is a compact premium card tuned for FHD multi-chart setups: header, top grid, middle metrics grid, and footer details.
 
 | HUD Field | Quick Interpretation |
 | --- | --- |
@@ -167,12 +171,12 @@ Projection behavior:
 | `InpHUDResetSavedPosition` | `bool` | `false` | Clears the saved HUD position on initialization and restores the default top-right placement. |
 | `InpHUDXDefault` | `int` | `12` | Default HUD X offset. |
 | `InpHUDYDefault` | `int` | `12` | Default HUD Y offset. |
-| `InpHUDFontSize` | `int` | `10` | HUD font size. |
-| `InpHUDWidth` | `int` | `620` | Requested HUD width; the renderer clamps to a 620 px minimum to preserve the approved dashboard proportions. |
-| `InpHUDHeight` | `int` | `304` | Requested HUD height; the renderer clamps to a 304 px minimum to preserve the approved dashboard proportions. |
+| `InpHUDFontSize` | `int` | `8` | Base HUD font size for the compact dashboard typography. |
+| `InpHUDWidth` | `int` | `384` | Requested HUD width; the renderer scales legacy larger values down and keeps a compact 384 px minimum footprint. |
+| `InpHUDHeight` | `int` | `192` | Requested HUD height; the renderer scales legacy larger values down and keeps a compact 192 px minimum footprint. |
 | `InpHUDAlphaMin` | `int` | `170` | Minimum HUD alpha (`0..255`). |
 | `InpHUDAlphaMax` | `int` | `255` | Maximum HUD alpha (`0..255`). |
-| `InpBarHeight` | `int` | `10` | Strength bar height input. |
+| `InpBarHeight` | `int` | `7` | Strength bar height input for the compact HUD. |
 | `InpBarMarginX` | `int` | `10` | Reserved compatibility input for bar X margin. |
 | `InpBarMarginBottom` | `int` | `10` | Reserved compatibility input for bar bottom margin. |
 | `InpTrendThreshold` | `double` | `0.60` | Threshold used to classify `TREND` regime. |
