@@ -8,11 +8,17 @@ const int HUD_SIDE_PADDING = 14;
 const int HUD_BOTTOM_PADDING = 10;
 const int HUD_HEADER_HEIGHT = 33;
 const int HUD_TOP_GRID_HEIGHT = 50;
-const int HUD_MIDDLE_GRID_BASE_HEIGHT = 44;
+const int HUD_MIDDLE_GRID_BASE_HEIGHT = 60;
 const int HUD_FOOTER_HEIGHT = 15;
+const int HUD_FOOTER_VOLUME_DETAILS_HEIGHT = 15;
 const int HUD_SECTION_GAP = 5;
 const int HUD_DIVIDER_THICKNESS = 1;
-const int HUD_OBJECT_COUNT = 37;
+const int HUD_OBJECT_COUNT = 42;
+
+int HUDFooterHeight()
+{
+   return HUD_FOOTER_HEIGHT + (InpShowVolumeDetails ? HUD_FOOTER_VOLUME_DETAILS_HEIGHT : 0);
+}
 
 int HUDMinimumPanelHeight()
 {
@@ -28,7 +34,7 @@ int HUDMinimumPanelHeight()
           HUD_SECTION_GAP +
           HUD_DIVIDER_THICKNESS +
           HUD_SECTION_GAP +
-          HUD_FOOTER_HEIGHT +
+          HUDFooterHeight() +
           HUD_BOTTOM_PADDING;
 }
 
@@ -115,11 +121,16 @@ string HUDObjectName(const int idx)
       case 29: return "LZ_HUD_ROW_STEP";
       case 30: return "LZ_HUD_ROW_STEPSRC";
       case 31: return "LZ_HUD_ROW_ENERGY";
-      case 32: return "LZ_HUD_DETAILS_ICON";
-      case 33: return "LZ_HUD_DETAILS_TXT";
-      case 34: return "LZ_HUD_DETAILS_R2";
-      case 35: return "LZ_HUD_DETAILS_ER";
-      case 36: return "LZ_HUD_DETAILS_S";
+      case 32: return "LZ_HUD_ROW_VOLBIAS";
+      case 33: return "LZ_HUD_ROW_VOLCONF";
+      case 34: return "LZ_HUD_DETAILS_ICON";
+      case 35: return "LZ_HUD_DETAILS_TXT";
+      case 36: return "LZ_HUD_DETAILS_R2";
+      case 37: return "LZ_HUD_DETAILS_ER";
+      case 38: return "LZ_HUD_DETAILS_S";
+      case 39: return "LZ_HUD_DETAILS_VOLR2";
+      case 40: return "LZ_HUD_DETAILS_VOLRATIO";
+      case 41: return "LZ_HUD_DETAILS_VOLS";
    }
 
    return "";

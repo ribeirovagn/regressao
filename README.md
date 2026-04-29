@@ -1,8 +1,8 @@
-# MarketRegime Zones (v2.14)
+# MarketRegime Zones (v2.15)
 
-A statistical, price-only market regime engine for MetaTrader 5.
+A statistical market regime engine for MetaTrader 5 with optional tick-volume confirmation.
 
-MarketRegime Zones is an MQL5 indicator that interprets market structure through price-only statistics instead of traditional indicators. It detects ranges, breakouts, structural bias, microtrend, trend strength, exhaustion, and breakout quality through projected zones and a compact real-time HUD, making it useful both for discretionary chart reading and for regime-based research workflows.
+MarketRegime Zones is an MQL5 indicator that interprets market structure through price statistics plus an optional tick-volume confirmation layer instead of traditional indicators. It detects ranges, breakouts, structural bias, microtrend, trend strength, exhaustion, breakout quality, and volume participation through projected zones and a compact real-time HUD, making it useful both for discretionary chart reading and for regime-based research workflows.
 
 ## Visual Examples
 
@@ -12,16 +12,17 @@ MarketRegime Zones is an MQL5 indicator that interprets market structure through
 
 ## Highlights
 
-- Price-only statistical analysis
+- Statistical price-structure analysis with optional tick-volume confirmation
 - Range and breakout zone detection
 - Trend strength, exhaustion, and break quality
 - Horizontal projection levels from recent zone structure
 - Compact premium HUD for FHD multi-chart use
+- Standalone historical dataset export script for ML workflows
 - Built for discretionary trading and future ML-oriented workflows
 
 ## Why it's different
 
-Most MT5 indicators summarize price through moving averages, oscillators, or momentum derivatives. MarketRegime Zones does not. It works from regression, efficiency, clustering, compression, and structural zone behavior to classify the market as a regime state instead of a single signal line. The result is a more structured decision framework for reading whether price is ranging, trending, exhausting, or breaking with quality.
+Most MT5 indicators summarize price through moving averages, oscillators, or momentum derivatives. MarketRegime Zones does not. It works from regression, efficiency, clustering, compression, structural zone behavior, and an optional tick-volume participation read to classify the market as a regime state instead of a single signal line. The result is a more structured decision framework for reading whether price is ranging, trending, exhausting, or breaking with quality and participation.
 
 ## Feature Summary
 
@@ -37,6 +38,7 @@ Most MT5 indicators summarize price through moving averages, oscillators, or mom
 - Calculates `TREND STRENGTH` from normalized slope, `R2`, and Efficiency Ratio (`ER`).
 - Calculates `TREND EXHAUSTION` from distance to zone mid, short-window strength drop, and short-window noise.
 - Calculates `BREAK QUALITY` from trend strength, broken-zone energy, breakout penetration, and freshness.
+- Calculates `VOLUME CONFIRM` from short-window volume slope, volume `R2`, and short-vs-long volume ratio using `tick_volume` as a participation proxy.
 - Calculates `ZONE ENERGY` only from price statistics: duration, compression, chop, and edge touches.
 - Throttles `OnCalculate()` with `InpOnCalculateDelaySeconds` to reduce redraw frequency if needed.
 
@@ -52,6 +54,8 @@ The HUD is designed to be read in a few seconds, not treated as a full control p
 | `STRENGTH` | Composite trend quality built from slope, `R2`, and `ER`. |
 | `TREND EXHAUSTION` | How stretched or tired the current move looks relative to zone structure and short-term deterioration. |
 | `BREAK QUALITY` | How credible the last breakout is based on strength, penetration, zone energy, and freshness. |
+| `VOLUME BIAS` | Direction of the short-window tick-volume regression: `UP`, `DOWN`, or `NEUTRAL`. |
+| `VOLUME CONFIRM` | Composite participation score from volume slope, `R2`, and short-vs-long volume ratio. Low values are a red flag on strong-looking price moves. |
 | `STEP` | Current zone height in price terms: `top - bottom`. |
 | `STEP SRC` | Whether the current `STEP` comes from the active zone, the last broken zone, or is unavailable. |
 | `ZONE ENERGY` | Statistical quality of the active zone based on duration, compression, chop, and edge interaction. |
@@ -62,11 +66,47 @@ The HUD is designed to be read in a few seconds, not treated as a full control p
 2. Attach the indicator to the target chart in MT5.
 3. Tune regime sensitivity first with `InpWindow`, `InpSlopeNormMode`, `InpSlopeThresholdMean`, `InpSlopeThresholdStd`, `InpR2Threshold`, and `InpScoreSlopeWeight`.
 4. Tune zone formation and breakout extension with `InpMinZoneBars`, `InpGapTolerance`, `InpExtendUntilBreak`, `InpBreakMarginPoints`, and `InpOnlyLastActiveAndLastBroken`.
-5. Tune projection and HUD behavior with `InpDrawProjectionLines`, `InpProjectionCount`, `InpEnableTrendHUD`, `InpShowBiasAndMicrotrend`, `InpShowTrendDetails`, and `InpMicrotrendWindow`.
-6. Tune the derived metrics if you use them in discretionary decisions: `InpTrendWeight*`, `InpExhaust*`, `InpBreakQuality*`, and `InpZoneEnergy*`.
+5. Tune projection and HUD behavior with `InpDrawProjectionLines`, `InpProjectionCount`, `InpEnableTrendHUD`, `InpShowBiasAndMicrotrend`, `InpShowTrendDetails`, `InpShowVolumeDetails`, and `InpMicrotrendWindow`.
+6. Tune the derived metrics if you use them in discretionary decisions: `InpTrendWeight*`, `InpExhaust*`, `InpBreakQuality*`, `InpVolume*`, and `InpZoneEnergy*`.
 7. Use `InpDebug` for Journal diagnostics and `InpOnCalculateDelaySeconds` to limit recomputation frequency.
 
 This repository tracks source code only. Compile the indicator locally in MetaEditor when you need the `.ex5` artifact.
+
+## Dataset Export
+
+The repository now includes a standalone historical export script at `Scripts/ExportMarketRegimeDataset.mq5`. It runs manually in MT5, does not depend on the indicator being attached to the chart, does not export from `OnCalculate()`, and reuses the same statistical engine modules used by the indicator.
+
+What the script exports:
+
+- One CSV row per valid historical candle
+- Two state snapshots on the same row:
+  - `fast` window via `InpWindowFast` (default `120`)
+  - `slow` window via `InpWindowSlow` (default `180`)
+- Core categorical fields:
+  - `regime_*`, `bias_*`, `microtrend_*`, `step_src_*`
+- Core numeric fields:
+  - `strength_*`, `exhaustion_*`, `break_quality_*`, `step_*`, `zone_energy_*`
+- Volume fields:
+  - `volume_bias_*`, `volume_confirm_*`, `volume_r2_*`, `volume_ratio_*`, `volume_s_*`
+- Derived cross-window features:
+  - alignment flags for regime, bias, microtrend, and volume bias
+  - deltas for strength, volume confirmation, exhaustion, break quality, step, and zone energy
+- Future training labels:
+  - `future_move_H = close[i-H] - close[i]`
+  - `mfe_H = max(close[i-k] - close[i])`
+  - `mae_H = min(close[i-k] - close[i])`
+
+Default export behavior:
+
+- Symbol: `InpExportSymbol`, or `_Symbol` when empty
+- Timeframe: `InpExportTimeframe`
+- File: `InpExportFileName`
+- Folder: common MT5 files folder when `InpUseCommonFolder = true`
+- History slice:
+  - `InpStartShift` skips the most recent valid rows before export
+  - `InpMaxRows = 0` exports the full valid history slice
+
+The script only writes rows that have enough past data for the configured windows and enough future data for the largest label horizon, so it avoids incomplete training rows by construction.
 
 ## Regime and HUD Behavior
 
@@ -81,7 +121,8 @@ This repository tracks source code only. Compile the indicator locally in MetaEd
 - `ZONE ENERGY` is shown only for the last active zone; if no active zone exists, the HUD shows `N/A`.
 - `TREND EXHAUSTION` requires a valid step and short-window metrics from `InpExhaustLookback`.
 - `BREAK QUALITY` requires a valid broken zone.
-- The extra detail line shows `R2`, `ER`, and normalized slope component `S`.
+- `VOLUME BIAS` and `VOLUME CONFIRM` use `tick_volume` only and never feed back into the price-state rules.
+- The extra detail line shows `R2`, `ER`, and normalized slope component `S`; when `InpShowVolumeDetails = true`, it also shows `VOL R2`, `VOL RATIO`, and `VOL S`.
 
 ## Metric Formulas
 
@@ -105,6 +146,11 @@ This repository tracks source code only. Compile the indicator locally in MetaEd
   - total top/bottom touches
 
 Weights are automatically normalized when their sum differs from `1`.
+
+- `volume_confirm` is a normalized weighted sum of:
+  - short-window normalized volume slope
+  - volume `R2`
+  - short-vs-long average volume ratio
 
 ## Parameters (`input`)
 
@@ -191,7 +237,21 @@ HUD position persistence:
 - Saved positions are isolated per symbol and timeframe, restored on the next load, and clamped back into the visible chart area if the chart size changes.
 - `InpHUDResetSavedPosition = true` acts as a reset-on-init switch; after clearing the stored position, leave it back at `false` if you want persistence to resume on the next initialization.
 
-### 6) Trend Exhaustion
+### 6) Volume Confirmation
+
+| Parameter | Type | Default | Description |
+| --- | --- | ---: | --- |
+| `InpEnableVolumeConfirmation` | `bool` | `true` | Enables `VOLUME BIAS` and `VOLUME CONFIRM` using `tick_volume`. |
+| `InpVolumeWindowShort` | `int` | `20` | Short volume window used for regression and short average. |
+| `InpVolumeWindowLong` | `int` | `60` | Long volume window used for the participation ratio baseline. |
+| `InpVolumeWeightSlope` | `double` | `0.40` | Weight of normalized volume slope in `volume_confirm`. |
+| `InpVolumeWeightR2` | `double` | `0.20` | Weight of volume `R2` in `volume_confirm`. |
+| `InpVolumeWeightRatio` | `double` | `0.40` | Weight of short-vs-long volume ratio in `volume_confirm`. |
+| `InpVolumeRatioScale` | `double` | `1.5` | Scale used to normalize the short-vs-long volume ratio. |
+| `InpVolumeSlopeThreshold` | `double` | `0.10` | Threshold used to normalize short-window volume slope. |
+| `InpShowVolumeDetails` | `bool` | `false` | Adds `VOL R2`, `VOL RATIO`, and `VOL S` to the HUD details footer. |
+
+### 7) Trend Exhaustion
 
 | Parameter | Type | Default | Description |
 | --- | --- | ---: | --- |
@@ -202,7 +262,7 @@ HUD position persistence:
 | `InpExhaustWeightStrength` | `double` | `0.30` | Weight of strength drop between main and short windows. |
 | `InpExhaustWeightNoise` | `double` | `0.25` | Weight of short-window noise (`1 - ER`). |
 
-### 7) Break Quality
+### 8) Break Quality
 
 | Parameter | Type | Default | Description |
 | --- | --- | ---: | --- |
@@ -212,7 +272,7 @@ HUD position persistence:
 | `InpBreakQualityWeightPenetr` | `double` | `0.20` | Weight of breakout penetration relative to zone step. |
 | `InpBreakQualityWeightFresh` | `double` | `0.15` | Weight of freshness (`1 - trend_exhaustion`). |
 
-### 8) Zone Energy
+### 9) Zone Energy
 
 | Parameter | Type | Default | Description |
 | --- | --- | ---: | --- |
@@ -225,7 +285,7 @@ HUD position persistence:
 | `InpZoneEnergyWeightChop` | `double` | `0.20` | Chop weight (`1 - ER_zone`). |
 | `InpZoneEnergyWeightTouch` | `double` | `0.15` | Edge-touch weight. |
 
-### 9) Execution and Debug
+### 10) Execution and Debug
 
 | Parameter | Type | Default | Description |
 | --- | --- | ---: | --- |
@@ -237,15 +297,15 @@ HUD position persistence:
 - `MarketRegime.mq5`: indicator entry point and orchestration.
 - `Core/`: shared types and helpers.
 - `HUD/`: layout, rendering, and drag behavior for the on-chart HUD.
-- `Stats/`: price-only derived metrics such as trend strength, exhaustion, break quality, and zone energy.
+- `Stats/`: derived metrics such as trend strength, exhaustion, break quality, volume confirmation, and zone energy.
 - `Zones/`: range detection, projection logic, and zone rendering.
 
 ## Notes
 
-- The indicator uses only price statistics. It does not depend on moving averages, oscillators, or other classic indicators.
+- The indicator logic still depends on price statistics for regime, zones, projections, and all existing structural metrics; the volume layer is additive and uses `tick_volume` only for confirmation.
 - In `OnInit()`, the code calls `ObjectsDeleteAll(0, -1, -1)`, which clears all objects on the current chart before creating its own HUD and drawing objects.
 - The HUD remains draggable only from the main background card, moves every child object together, and persists its dragged position through MT5 Global Variables.
-- The indicator short name shown by MT5 is `MarketRegime Zones (v2.14)`.
+- The indicator short name shown by MT5 is `MarketRegime Zones (v2.15)`.
 
 ## Roadmap / Next Steps
 

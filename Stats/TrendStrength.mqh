@@ -66,6 +66,23 @@ void ResetTrendState(TrendState &state)
    state.regime = REGIME_MIXED;
 }
 
+void ComputeTrendStateAtIndex(const int index,
+                              const double currentFlag,
+                              const bool hasActiveZone,
+                              const double &close[],
+                              const int mainWindow,
+                              const int microWindow,
+                              const int shortWindow,
+                              const double eps,
+                              const ENUM_SLOPE_NORM_MODE normMode,
+                              const double slopeThresholdMean,
+                              const double slopeThresholdStd,
+                              const double trendWeightSlope,
+                              const double trendWeightR2,
+                              const double trendWeightER,
+                              const double trendThreshold,
+                              TrendState &state);
+
 void ComputeTrendState(const double currentFlag,
                        const bool hasActiveZone,
                        const double &close[],
@@ -82,18 +99,57 @@ void ComputeTrendState(const double currentFlag,
                        const double trendThreshold,
                        TrendState &state)
 {
+   ComputeTrendStateAtIndex(0,
+                            currentFlag,
+                            hasActiveZone,
+                            close,
+                            mainWindow,
+                            microWindow,
+                            shortWindow,
+                            eps,
+                            normMode,
+                            slopeThresholdMean,
+                            slopeThresholdStd,
+                            trendWeightSlope,
+                            trendWeightR2,
+                            trendWeightER,
+                            trendThreshold,
+                            state);
+}
+
+void ComputeTrendStateAtIndex(const int index,
+                              const double currentFlag,
+                              const bool hasActiveZone,
+                              const double &close[],
+                              const int mainWindow,
+                              const int microWindow,
+                              const int shortWindow,
+                              const double eps,
+                              const ENUM_SLOPE_NORM_MODE normMode,
+                              const double slopeThresholdMean,
+                              const double slopeThresholdStd,
+                              const double trendWeightSlope,
+                              const double trendWeightR2,
+                              const double trendWeightER,
+                              const double trendThreshold,
+                              TrendState &state)
+{
    ResetTrendState(state);
 
    const double slopeThreshold = GetSlopeThreshold(normMode, slopeThresholdMean, slopeThresholdStd);
 
-   if (ComputeCurrentLRMetrics(mainWindow,
+   if (ComputeLRMetricsAtIndex(index,
+                               mainWindow,
                                close,
                                eps,
                                normMode,
                                slopeThresholdMean,
                                slopeThresholdStd,
-                               state.mainMetrics))
+                               state.mainMetrics.b_norm,
+                               state.mainMetrics.r2,
+                               state.mainMetrics.er))
    {
+      state.mainMetrics.valid = true;
       state.slope01 = Clamp01((slopeThreshold > 0.0) ? (MathAbs(state.mainMetrics.b_norm) / slopeThreshold) : 0.0);
       state.strength01 = ComputeTrendStrength(state.mainMetrics.b_norm,
                                               state.mainMetrics.r2,
@@ -105,25 +161,33 @@ void ComputeTrendState(const double currentFlag,
       state.biasDir = DirectionFromSlope(state.mainMetrics.b_norm, eps);
    }
 
-   if (ComputeCurrentLRMetrics(microWindow,
+   if (ComputeLRMetricsAtIndex(index,
+                               microWindow,
                                close,
                                eps,
                                normMode,
                                slopeThresholdMean,
                                slopeThresholdStd,
-                               state.microMetrics))
+                               state.microMetrics.b_norm,
+                               state.microMetrics.r2,
+                               state.microMetrics.er))
    {
+      state.microMetrics.valid = true;
       state.microDir = DirectionFromSlope(state.microMetrics.b_norm, eps);
    }
 
-   if (ComputeCurrentLRMetrics(shortWindow,
+   if (ComputeLRMetricsAtIndex(index,
+                               shortWindow,
                                close,
                                eps,
                                normMode,
                                slopeThresholdMean,
                                slopeThresholdStd,
-                               state.shortMetrics))
+                               state.shortMetrics.b_norm,
+                               state.shortMetrics.r2,
+                               state.shortMetrics.er))
    {
+      state.shortMetrics.valid = true;
       state.shortStrength01 = ComputeTrendStrength(state.shortMetrics.b_norm,
                                                    state.shortMetrics.r2,
                                                    state.shortMetrics.er,

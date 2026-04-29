@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//|                        MarketRegime.mq5 (v2.14)                  |
+//|                        MarketRegime.mq5 (v2.15)                  |
 //|   MarketRegime (LR Close) + Zones (clusters)                     |
 //+------------------------------------------------------------------+
 #property copyright "Vagner Ribeiro"
 #property link "https://www.mql5.com"
-#property version "2.14"
+#property version "2.15"
 #property strict
 
 #property indicator_chart_window
@@ -90,6 +90,16 @@ input double InpBreakQualityWeightEnergy = 0.30;
 input double InpBreakQualityWeightPenetr = 0.20;
 input double InpBreakQualityWeightFresh = 0.15;
 
+input bool InpEnableVolumeConfirmation = true;
+input int InpVolumeWindowShort = 20;
+input int InpVolumeWindowLong = 60;
+input double InpVolumeWeightSlope = 0.40;
+input double InpVolumeWeightR2 = 0.20;
+input double InpVolumeWeightRatio = 0.40;
+input double InpVolumeRatioScale = 1.5;
+input double InpVolumeSlopeThreshold = 0.10;
+input bool InpShowVolumeDetails = false;
+
 input bool InpEnableZoneEnergy = true;
 input int InpZoneEnergyLenScale = 120;
 input int InpZoneEnergyTouchMarginPoints = 30;
@@ -126,6 +136,7 @@ string g_hud_key_moved = "";
 #include "Stats/TrendStrength.mqh"
 #include "Stats/TrendExhaustion.mqh"
 #include "Stats/BreakQuality.mqh"
+#include "Stats/VolumeConfirmation.mqh"
 #include "Stats/ZoneEnergy.mqh"
 #include "Zones/ZoneDetector.mqh"
 #include "Zones/ZoneRenderer.mqh"
@@ -151,6 +162,14 @@ int OnInit()
    if (InpExhaustLookback < 2)
       return INIT_PARAMETERS_INCORRECT;
    if (InpExhaustDistanceScale <= 0.0)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpVolumeWindowShort < 2)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpVolumeWindowLong < 2)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpVolumeRatioScale <= 0.0)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpVolumeSlopeThreshold <= 0.0)
       return INIT_PARAMETERS_INCORRECT;
    if (InpOnCalculateDelaySeconds < 0)
       return INIT_PARAMETERS_INCORRECT;
@@ -186,7 +205,7 @@ int OnInit()
    PlotIndexSetInteger(0, PLOT_ARROW_SHIFT, -8);
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-   IndicatorSetString(INDICATOR_SHORTNAME, "MarketRegime Zones (v2.14)");
+   IndicatorSetString(INDICATOR_SHORTNAME, "MarketRegime Zones (v2.15)");
    return INIT_SUCCEEDED;
 }
 
@@ -221,6 +240,7 @@ int OnCalculate(const int rates_total,
    ArraySetAsSeries(high, true);
    ArraySetAsSeries(low, true);
    ArraySetAsSeries(close, true);
+   ArraySetAsSeries(tick_volume, true);
 
    const int window = InpWindow;
    const int lastValid = rates_total - window;
@@ -393,6 +413,20 @@ int OnCalculate(const int rates_total,
                                             breakQualityPct);
    }
 
+   VolumeState volumeState;
+   const bool hasVolume = (InpEnableVolumeConfirmation &&
+                           ComputeVolumeConfirmationAtIndex(0,
+                                                            tick_volume,
+                                                            eps,
+                                                            MathMax(2, InpVolumeWindowShort),
+                                                            MathMax(2, InpVolumeWindowLong),
+                                                            InpVolumeSlopeThreshold,
+                                                            InpVolumeWeightSlope,
+                                                            InpVolumeWeightR2,
+                                                            InpVolumeWeightRatio,
+                                                            InpVolumeRatioScale,
+                                                            volumeState));
+
    HUDState hudState;
    hudState.regime = trendState.regime;
    hudState.biasDir = trendState.biasDir;
@@ -409,6 +443,12 @@ int OnCalculate(const int rates_total,
    hudState.slope01 = trendState.slope01;
    hudState.hasZoneEnergy = hasZoneEnergy;
    hudState.zoneEnergyPct = zoneEnergyPct;
+   hudState.hasVolume = hasVolume;
+   hudState.volumeBiasDir = (hasVolume ? volumeState.bias : 0);
+   hudState.volumeConfirmPct = (hasVolume ? ClampInt((int)MathRound(volumeState.confirmation01 * 100.0), 0, 100) : 0);
+   hudState.volumeR2 = (hasVolume ? volumeState.r2 : 0.0);
+   hudState.volumeRatio = (hasVolume ? volumeState.ratio : 0.0);
+   hudState.volumeSlope01 = (hasVolume ? volumeState.slope01 : 0.0);
 
    if (InpEnableTrendHUD)
       RenderTrendHUD(hudState);

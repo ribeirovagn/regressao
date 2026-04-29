@@ -16,8 +16,10 @@ bool ComputeBreakQuality(const ZoneInfo &brokenZone,
                          double weightEnergy,
                          double weightPenetr,
                          double weightFresh,
+                         double &breakQuality01,
                          int &breakQualityPct)
 {
+   breakQuality01 = 0.0;
    breakQualityPct = 0;
    if (!brokenZone.valid)
       return false;
@@ -50,12 +52,43 @@ bool ComputeBreakQuality(const ZoneInfo &brokenZone,
    double wFresh = weightFresh;
    NormalizeWeights4(wStrength, wEnergy, wPenetr, wFresh);
 
-   const double breakQuality01 = Clamp01(wStrength * breakStrength01 +
-                                         wEnergy * breakEnergy01 +
-                                         wPenetr * penetration01 +
-                                         wFresh * freshness01);
+   breakQuality01 = Clamp01(wStrength * breakStrength01 +
+                            wEnergy * breakEnergy01 +
+                            wPenetr * penetration01 +
+                            wFresh * freshness01);
    breakQualityPct = ClampInt((int)MathRound(breakQuality01 * 100.0), 0, 100);
    return true;
+}
+
+bool ComputeBreakQuality(const ZoneInfo &brokenZone,
+                         const double currentClose,
+                         const double trendStrength,
+                         const bool hasBrokenZoneEnergy,
+                         const double brokenZoneEnergy01,
+                         const bool hasTrendExhaustion,
+                         const double trendExhaustion01,
+                         const double eps,
+                         double weightStrength,
+                         double weightEnergy,
+                         double weightPenetr,
+                         double weightFresh,
+                         int &breakQualityPct)
+{
+   double breakQuality01 = 0.0;
+   return ComputeBreakQuality(brokenZone,
+                              currentClose,
+                              trendStrength,
+                              hasBrokenZoneEnergy,
+                              brokenZoneEnergy01,
+                              hasTrendExhaustion,
+                              trendExhaustion01,
+                              eps,
+                              weightStrength,
+                              weightEnergy,
+                              weightPenetr,
+                              weightFresh,
+                              breakQuality01,
+                              breakQualityPct);
 }
 
 #endif

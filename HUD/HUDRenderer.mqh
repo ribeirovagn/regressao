@@ -13,7 +13,7 @@ string HUDDisplayTitle()
 
 string HUDDisplayVersion()
 {
-   return "v2.13";
+   return "v2.15";
 }
 
 string DirectionToText(const int dir)
@@ -155,16 +155,20 @@ int MeasureHUDTextWidth(const string text,
 int HUDMetricColumnWidth(const string row1,
                          const string row2,
                          const string row3,
+                         const string row4,
                          const int metricFontSize)
 {
    const int measure1 = MeasureHUDTextWidth(row1, "Segoe UI Semibold", metricFontSize);
    const int measure2 = MeasureHUDTextWidth(row2, "Segoe UI Semibold", metricFontSize);
    const int measure3 = MeasureHUDTextWidth(row3, "Segoe UI Semibold", metricFontSize);
-   return MathMax(measure1, MathMax(measure2, measure3)) + 8;
+   const int measure4 = MeasureHUDTextWidth(row4, "Segoe UI Semibold", metricFontSize);
+   return MathMax(MathMax(measure1, measure2), MathMax(measure3, measure4)) + 8;
 }
 
 int HUDResolvePanelWidth(const string exhaustText,
                          const string breakText,
+                         const string volumeBiasText,
+                         const string volumeConfirmText,
                          const string stepText,
                          const string stepSourceText,
                          const string energyText,
@@ -172,12 +176,14 @@ int HUDResolvePanelWidth(const string exhaustText,
 {
    const string leftRow1 = HUDMetricLineText("TREND EXHAUSTION", exhaustText);
    const string leftRow2 = HUDMetricLineText("BREAK QUALITY", breakText);
-   const string leftRow3 = HUDMetricLineText("STEP", stepText);
-   const string rightRow1 = HUDMetricLineText("STEP SRC", stepSourceText);
-   const string rightRow2 = HUDMetricLineText("ZONE ENERGY", energyText);
+   const string leftRow3 = HUDMetricLineText("VOLUME BIAS", volumeBiasText);
+   const string leftRow4 = HUDMetricLineText("VOLUME CONFIRM", volumeConfirmText);
+   const string rightRow1 = HUDMetricLineText("STEP", stepText);
+   const string rightRow2 = HUDMetricLineText("STEP SRC", stepSourceText);
+   const string rightRow3 = HUDMetricLineText("ZONE ENERGY", energyText);
    const int colSpacing = 20;
-   const int colWidth = MathMax(HUDMetricColumnWidth(leftRow1, leftRow2, leftRow3, metricFontSize),
-                                HUDMetricColumnWidth(rightRow1, rightRow2, "", metricFontSize));
+   const int colWidth = MathMax(HUDMetricColumnWidth(leftRow1, leftRow2, leftRow3, leftRow4, metricFontSize),
+                                HUDMetricColumnWidth(rightRow1, rightRow2, rightRow3, "", metricFontSize));
    const int requiredW = 2 * HUD_SIDE_PADDING + colSpacing + 2 * colWidth;
    return MathMax(HUDBasePanelWidth(), requiredW);
 }
@@ -216,6 +222,10 @@ void DeleteLegacyHUDObjects()
    ObjectDelete(0, "LZ_HUD_VAL_STEPSRC");
    ObjectDelete(0, "LZ_HUD_LBL_ENERGY");
    ObjectDelete(0, "LZ_HUD_VAL_ENERGY");
+   ObjectDelete(0, "LZ_HUD_LBL_VOLBIAS");
+   ObjectDelete(0, "LZ_HUD_VAL_VOLBIAS");
+   ObjectDelete(0, "LZ_HUD_LBL_VOLCONF");
+   ObjectDelete(0, "LZ_HUD_VAL_VOLCONF");
 }
 
 void SetHUDRect(const string name,
@@ -307,12 +317,17 @@ void EnsureHUDObjectsCreated()
    EnsureHUDLabel("LZ_HUD_ROW_STEP");
    EnsureHUDLabel("LZ_HUD_ROW_STEPSRC");
    EnsureHUDLabel("LZ_HUD_ROW_ENERGY");
+   EnsureHUDLabel("LZ_HUD_ROW_VOLBIAS");
+   EnsureHUDLabel("LZ_HUD_ROW_VOLCONF");
 
    EnsureHUDRectangle("LZ_HUD_DETAILS_ICON");
    EnsureHUDLabel("LZ_HUD_DETAILS_TXT");
    EnsureHUDLabel("LZ_HUD_DETAILS_R2");
    EnsureHUDLabel("LZ_HUD_DETAILS_ER");
    EnsureHUDLabel("LZ_HUD_DETAILS_S");
+   EnsureHUDLabel("LZ_HUD_DETAILS_VOLR2");
+   EnsureHUDLabel("LZ_HUD_DETAILS_VOLRATIO");
+   EnsureHUDLabel("LZ_HUD_DETAILS_VOLS");
 
    DeleteLegacyHUDObjects();
 
@@ -551,11 +566,15 @@ void RenderHUDMiddleGrid(const int x,
                          const int dividerBottomY,
                          const string exhaustText,
                          const string breakText,
+                         const string volumeBiasText,
+                         const string volumeConfirmText,
                          const string stepText,
                          const string stepSourceText,
                          const string energyText,
                          const color exhaustColor,
                          const color breakColor,
+                         const color volumeBiasColor,
+                         const color volumeConfirmColor,
                          const color stepColor,
                          const color stepSourceColor,
                          const color energyColor,
@@ -573,8 +592,9 @@ void RenderHUDMiddleGrid(const int x,
    const int stretch = MathMax(0, middleGridH - HUD_MIDDLE_GRID_BASE_HEIGHT);
 
    const int row1Y = middleGridY;
-   const int row2Y = middleGridY + 16 + (stretch / 3);
-   const int row3Y = middleGridY + 32 + ((2 * stretch) / 3);
+   const int row2Y = middleGridY + 16 + (stretch / 4);
+   const int row3Y = middleGridY + 32 + ((2 * stretch) / 4);
+   const int row4Y = middleGridY + 48 + ((3 * stretch) / 4);
 
    SetHUDRect("LZ_HUD_VSEP_MID",
               midSepX,
@@ -587,9 +607,11 @@ void RenderHUDMiddleGrid(const int x,
 
    SetHUDInlineMetric("LZ_HUD_ROW_EXHAUST", col1X, row1Y, "TREND EXHAUSTION", exhaustText, metricFontSize, exhaustColor);
    SetHUDInlineMetric("LZ_HUD_ROW_BREAKQ", col1X, row2Y, "BREAK QUALITY", breakText, metricFontSize, breakColor);
-   SetHUDInlineMetric("LZ_HUD_ROW_STEP", col1X, row3Y, "STEP", stepText, metricFontSize, stepColor);
-   SetHUDInlineMetric("LZ_HUD_ROW_STEPSRC", col2X, row1Y, "STEP SRC", stepSourceText, metricFontSize, stepSourceColor);
-   SetHUDInlineMetric("LZ_HUD_ROW_ENERGY", col2X, row2Y, "ZONE ENERGY", energyText, metricFontSize, energyColor);
+   SetHUDInlineMetric("LZ_HUD_ROW_VOLBIAS", col1X, row3Y, "VOLUME BIAS", volumeBiasText, metricFontSize, volumeBiasColor);
+   SetHUDInlineMetric("LZ_HUD_ROW_VOLCONF", col1X, row4Y, "VOLUME CONFIRM", volumeConfirmText, metricFontSize, volumeConfirmColor);
+   SetHUDInlineMetric("LZ_HUD_ROW_STEP", col2X, row1Y, "STEP", stepText, metricFontSize, stepColor);
+   SetHUDInlineMetric("LZ_HUD_ROW_STEPSRC", col2X, row2Y, "STEP SRC", stepSourceText, metricFontSize, stepSourceColor);
+   SetHUDInlineMetric("LZ_HUD_ROW_ENERGY", col2X, row3Y, "ZONE ENERGY", energyText, metricFontSize, energyColor);
 
    SetHUDRect("LZ_HUD_DIVIDER_BOTTOM",
               contentX + 2,
@@ -607,6 +629,10 @@ void RenderHUDFooter(const int x,
                      const string r2Text,
                      const string erText,
                      const string sText,
+                     const bool showVolumeDetails,
+                     const string volR2Text,
+                     const string volRatioText,
+                     const string volSText,
                      const color detailsIconColor,
                      const color labelColor,
                      const color detailValueColor,
@@ -621,6 +647,7 @@ void RenderHUDFooter(const int x,
    const int metricW = 48;
    const int metricGap = 10;
    const int metricsStartX = contentX + MathMax(82, contentW - (metricW * 3 + metricGap * 2));
+   const int volumeRowY = footerY + HUD_FOOTER_HEIGHT;
 
    SetHUDRect("LZ_HUD_DETAILS_ICON",
               contentX,
@@ -634,6 +661,27 @@ void RenderHUDFooter(const int x,
    SetHUDLabel("LZ_HUD_DETAILS_R2", metricsStartX, footerY, r2Text, "Segoe UI Semibold", detailFontSize, detailValueColor);
    SetHUDLabel("LZ_HUD_DETAILS_ER", metricsStartX + metricW + metricGap, footerY, erText, "Segoe UI Semibold", detailFontSize, detailValueColor);
    SetHUDLabel("LZ_HUD_DETAILS_S", metricsStartX + 2 * (metricW + metricGap), footerY, sText, "Segoe UI Semibold", detailFontSize, detailValueColor);
+   SetHUDLabel("LZ_HUD_DETAILS_VOLR2",
+               metricsStartX,
+               volumeRowY,
+               (showVolumeDetails ? volR2Text : ""),
+               "Segoe UI Semibold",
+               detailFontSize,
+               detailValueColor);
+   SetHUDLabel("LZ_HUD_DETAILS_VOLRATIO",
+               metricsStartX + metricW + metricGap,
+               volumeRowY,
+               (showVolumeDetails ? volRatioText : ""),
+               "Segoe UI Semibold",
+               detailFontSize,
+               detailValueColor);
+   SetHUDLabel("LZ_HUD_DETAILS_VOLS",
+               metricsStartX + 2 * (metricW + metricGap),
+               volumeRowY,
+               (showVolumeDetails ? volSText : ""),
+               "Segoe UI Semibold",
+               detailFontSize,
+               detailValueColor);
 }
 
 void DeleteTrendHUD()
@@ -672,12 +720,18 @@ void RenderTrendHUD(const HUDState &state)
    const int strengthPct = ClampInt((int)MathRound(Clamp01(state.strength01) * 100.0), 0, 100);
    const string exhaustText = PctToText(state.hasTrendExhaustion, state.trendExhaustionPct);
    const string breakText = PctToText(state.hasBreakQuality, state.breakQualityPct);
+   const string volumeBiasText = (state.hasVolume ? DirectionToText(state.volumeBiasDir) : "N/A");
+   const string volumeConfirmText = PctToText(state.hasVolume, state.volumeConfirmPct);
    const string stepText = StepToText(state.step);
    const string stepSourceText = (state.step >= 0.0 && StringLen(state.stepSource) > 0 ? state.stepSource : "N/A");
    const string energyText = PctToText(InpEnableZoneEnergy && state.hasZoneEnergy, state.zoneEnergyPct);
    const string r2Text = DetailMetricText("R2", showDetails, state.r2);
    const string erText = DetailMetricText("ER", showDetails, state.er);
    const string sText = DetailMetricText("S", showDetails, state.slope01);
+   const bool showVolumeDetails = (showDetails && InpShowVolumeDetails && state.hasVolume);
+   const string volR2Text = DetailMetricText("VOL R2", showVolumeDetails, state.volumeR2);
+   const string volRatioText = (showVolumeDetails ? StringFormat("VOL RATIO %.2f", state.volumeRatio) : "VOL RATIO N/A");
+   const string volSText = DetailMetricText("VOL S", showVolumeDetails, state.volumeSlope01);
 
    const color shadowColor = (color)ColorToARGB(clrBlack, (uchar)ClampInt(15 + (alpha / 48), 15, 24));
    const color panelBgColor = (color)ColorToARGB(clrBlack, (uchar)ClampInt(38 + (alpha / 48), 38, 48));
@@ -722,6 +776,16 @@ void RenderTrendHUD(const HUDState &state)
                                                 upColor,
                                                 energySoftColor,
                                                 neutralValueColor);
+   const color volumeBiasColor = HUDDirectionColor((state.hasVolume ? state.volumeBiasDir : 0),
+                                                   upColor,
+                                                   downColor,
+                                                   neutralValueColor);
+   const color volumeConfirmColor = HUDBreakQualityColor(state.hasVolume,
+                                                         state.volumeConfirmPct,
+                                                         upColor,
+                                                         warnColor,
+                                                         downColor,
+                                                         neutralValueColor);
 
    const int baseFont = MathMax(8, (int)MathRound((double)MathMax(6, InpHUDFontSize) * 0.80));
    const int labelFontSize = MathMax(7, baseFont - 1);
@@ -734,6 +798,8 @@ void RenderTrendHUD(const HUDState &state)
    const int detailFontSize = MathMax(7, baseFont - 1);
    const int panelW = HUDResolvePanelWidth(exhaustText,
                                            breakText,
+                                           volumeBiasText,
+                                           volumeConfirmText,
                                            stepText,
                                            stepSourceText,
                                            energyText,
@@ -804,11 +870,15 @@ void RenderTrendHUD(const HUDState &state)
                        dividerBottomY,
                        exhaustText,
                        breakText,
+                       volumeBiasText,
+                       volumeConfirmText,
                        stepText,
                        stepSourceText,
                        energyText,
                        exhaustColor,
                        breakColor,
+                       volumeBiasColor,
+                       volumeConfirmColor,
                        stepColor,
                        stepSourceColor,
                        energyColor,
@@ -821,6 +891,10 @@ void RenderTrendHUD(const HUDState &state)
                    r2Text,
                    erText,
                    sText,
+                   showVolumeDetails,
+                   volR2Text,
+                   volRatioText,
+                   volSText,
                    detailsIconColor,
                    labelColor,
                    detailValueColor,
