@@ -1,0 +1,15 @@
+# Core tabular data and classical machine-learning stack
+numpy>=2.0,<3
+pandas>=2.2,<4
+scipy>=1.13,<2
+scikit-learn>=1.6,<2
+joblib>=1.4,<2
+
+# Diagnostics and efficient columnar I/O
+matplotlib>=3.9,<4
+pyarrow>=18,<25
+
+# Model interchange for MetaTrader 5 ONNX inference
+onnx>=1.17,<2
+onnxruntime>=1.20,<2
+skl2onnx>=1.18,<2

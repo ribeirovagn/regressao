@@ -1,0 +1,16 @@
+{
+  "manifest_version": 1,
+  "purpose": "Untouched prospective holdout for the next redesigned breakout model",
+  "frozen_dataset_sha256": "1a0070198f3cc200d67d31e8c2f4b0e152527db4002d8666502f8870b76935a7",
+  "cutoff_signal_time": "2026-07-31 20:16:00",
+  "dataset_schema_version": "2",
+  "feature_count": 54,
+  "feature_names_sha256": "565b91baf409b473bb5df274f0ea9234d9f860654ebd1b0e952c869aa9f054b7",
+  "minimum_new_events": 500,
+  "minimum_calendar_days_after_cutoff": 60,
+  "candidate_manifest": "ML/prospective_candidate_manifest.json",
+  "candidate_manifest_sha256": "a3ca19e63e3fd89ef64b38fd150d59fd017e7723d3a4804a1f0f76619562ac10",
+  "candidate_status": "frozen_waiting_prospective_holdout",
+  "do_not_read_future_labels_before_ready": true,
+  "status": "collecting"
+}

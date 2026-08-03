@@ -11,9 +11,13 @@ const int HUD_TOP_GRID_HEIGHT = 50;
 const int HUD_MIDDLE_GRID_BASE_HEIGHT = 60;
 const int HUD_FOOTER_HEIGHT = 15;
 const int HUD_FOOTER_VOLUME_DETAILS_HEIGHT = 15;
+const int HUD_MIDDLE_GRID_MIN_ROW_GAP = 16;
+const int HUD_FOOTER_MIN_ROW_GAP = 14;
+const int HUD_DECISION_SECTION_HEIGHT = 108;
+const int HUD_DECISION_BUTTON_HEIGHT = 22;
 const int HUD_SECTION_GAP = 5;
 const int HUD_DIVIDER_THICKNESS = 1;
-const int HUD_OBJECT_COUNT = 42;
+const int HUD_OBJECT_COUNT = 50;
 
 int HUDFooterHeight()
 {
@@ -22,7 +26,7 @@ int HUDFooterHeight()
 
 int HUDMinimumPanelHeight()
 {
-   return HUD_TOP_PADDING +
+   int height = HUD_TOP_PADDING +
           HUD_HEADER_HEIGHT +
           HUD_DIVIDER_THICKNESS +
           HUD_SECTION_GAP +
@@ -36,6 +40,13 @@ int HUDMinimumPanelHeight()
           HUD_SECTION_GAP +
           HUDFooterHeight() +
           HUD_BOTTOM_PADDING;
+
+   if (InpEnableDecisionEvents)
+      height += HUD_SECTION_GAP +
+                HUD_DIVIDER_THICKNESS +
+                HUD_SECTION_GAP +
+                HUD_DECISION_SECTION_HEIGHT;
+   return height;
 }
 
 int HUDBasePanelWidth()
@@ -131,6 +142,14 @@ string HUDObjectName(const int idx)
       case 39: return "LZ_HUD_DETAILS_VOLR2";
       case 40: return "LZ_HUD_DETAILS_VOLRATIO";
       case 41: return "LZ_HUD_DETAILS_VOLS";
+      case 42: return "LZ_HUD_DIVIDER_EVENT";
+      case 43: return "LZ_HUD_EVENT_TITLE";
+      case 44: return "LZ_HUD_EVENT_EVIDENCE";
+      case 45: return "LZ_HUD_EVENT_RISK";
+      case 46: return "LZ_HUD_EVENT_HINT";
+      case 47: return "LZ_HUD_EVENT_FEEDBACK";
+      case 48: return "LZ_HUD_BTN_MARK_ENTRY";
+      case 49: return "LZ_HUD_BTN_IGNORE";
    }
 
    return "";

@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//|                        MarketRegime.mq5 (v2.15)                  |
+//|                        MarketRegime.mq5 (v2.17)                  |
 //|   MarketRegime (LR Close) + Zones (clusters)                     |
 //+------------------------------------------------------------------+
 #property copyright "Vagner Ribeiro"
 #property link "https://www.mql5.com"
-#property version "2.15"
+#property version "2.17"
 #property strict
 
 #property indicator_chart_window
@@ -72,6 +72,24 @@ input int InpHUDAlphaMax = 255;
 input int InpBarHeight = 7;
 input int InpBarMarginX = 10;
 input int InpBarMarginBottom = 10;
+
+input bool InpEnableDecisionEvents = true;
+input int InpDecisionEventMaxAgeBars = 6;
+input double InpDecisionContinuationStepFraction = 0.05;
+input double InpDecisionRetestToleranceStepFraction = 0.20;
+input int InpDecisionMinimumStrengthPct = 50;
+input int InpDecisionMinimumBreakQualityPct = 40;
+input int InpDecisionMinimumVolumeConfirmPct = 40;
+input int InpDecisionMaximumExhaustionPct = 70;
+input int InpDecisionMinimumEvidenceVotes = 4;
+input int InpDecisionMaximumSpreadPoints = 0;
+input bool InpDecisionPopupAlert = true;
+input bool InpDecisionSoundAlert = false;
+input string InpDecisionSoundFile = "alert.wav";
+input bool InpDecisionLogHumanActions = true;
+input string InpDecisionLogFileName = "market_regime_human_decisions.csv";
+input bool InpDecisionUseCommonFolder = false;
+
 input double InpTrendThreshold = 0.60;
 input double InpTrendWeightSlope = 0.40;
 input double InpTrendWeightR2 = 0.40;
@@ -141,9 +159,58 @@ string g_hud_key_moved = "";
 #include "Zones/ZoneDetector.mqh"
 #include "Zones/ZoneRenderer.mqh"
 #include "Zones/ProjectionRenderer.mqh"
+#include "Core/StateEngine.mqh"
+#include "Core/HumanDecisionEvent.mqh"
 #include "HUD/HUDLayout.mqh"
 #include "HUD/HUDDragController.mqh"
 #include "HUD/HUDRenderer.mqh"
+
+void ConfigureIndicatorStateEngine(StateEngineConfig &config)
+{
+   InitializeStateEngineConfig(config, InpWindow);
+   config.microtrendWindow = MathMax(2, InpMicrotrendWindow);
+   config.shortWindow = MathMax(2, InpExhaustLookback);
+   config.slopeNormMode = InpSlopeNormMode;
+   config.slopeThresholdMean = InpSlopeThresholdMean;
+   config.slopeThresholdStd = InpSlopeThresholdStd;
+   config.r2Threshold = InpR2Threshold;
+   config.scoreSlopeWeight = InpScoreSlopeWeight;
+   config.minZoneBars = InpMinZoneBars;
+   config.gapTolerance = InpGapTolerance;
+   config.extendUntilBreak = InpExtendUntilBreak;
+   config.breakMarginPoints = InpBreakMarginPoints;
+   config.trendThreshold = InpTrendThreshold;
+   config.trendWeightSlope = InpTrendWeightSlope;
+   config.trendWeightR2 = InpTrendWeightR2;
+   config.trendWeightER = InpTrendWeightER;
+   config.enableTrendExhaustion = InpEnableTrendExhaustion;
+   config.exhaustDistanceScale = InpExhaustDistanceScale;
+   config.exhaustWeightDistance = InpExhaustWeightDistance;
+   config.exhaustWeightStrength = InpExhaustWeightStrength;
+   config.exhaustWeightNoise = InpExhaustWeightNoise;
+   config.enableBreakQuality = InpEnableBreakQuality;
+   config.enableZoneEnergy = InpEnableZoneEnergy;
+   config.zoneEnergyLenScale = InpZoneEnergyLenScale;
+   config.zoneEnergyTouchMarginPoints = InpZoneEnergyTouchMarginPoints;
+   config.zoneEnergyTouchScale = InpZoneEnergyTouchScale;
+   config.zoneEnergyWeightLen = InpZoneEnergyWeightLen;
+   config.zoneEnergyWeightComp = InpZoneEnergyWeightComp;
+   config.zoneEnergyWeightChop = InpZoneEnergyWeightChop;
+   config.zoneEnergyWeightTouch = InpZoneEnergyWeightTouch;
+   config.breakQualityWeightStrength = InpBreakQualityWeightStrength;
+   config.breakQualityWeightEnergy = InpBreakQualityWeightEnergy;
+   config.breakQualityWeightPenetr = InpBreakQualityWeightPenetr;
+   config.breakQualityWeightFresh = InpBreakQualityWeightFresh;
+   config.enableVolumeConfirmation = InpEnableVolumeConfirmation;
+   config.volumeWindowShort = InpVolumeWindowShort;
+   config.volumeWindowLong = InpVolumeWindowLong;
+   config.volumeWeightSlope = InpVolumeWeightSlope;
+   config.volumeWeightR2 = InpVolumeWeightR2;
+   config.volumeWeightRatio = InpVolumeWeightRatio;
+   config.volumeRatioScale = InpVolumeRatioScale;
+   config.volumeSlopeThreshold = InpVolumeSlopeThreshold;
+   config.showVolumeDetails = InpShowVolumeDetails;
+}
 
 int OnInit()
 {
@@ -173,6 +240,26 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    if (InpOnCalculateDelaySeconds < 0)
       return INIT_PARAMETERS_INCORRECT;
+   if (InpDecisionEventMaxAgeBars < 0)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpDecisionContinuationStepFraction < 0.0 || InpDecisionRetestToleranceStepFraction < 0.0)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpDecisionMinimumStrengthPct < 0 || InpDecisionMinimumStrengthPct > 100)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpDecisionMinimumBreakQualityPct < 0 || InpDecisionMinimumBreakQualityPct > 100)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpDecisionMinimumVolumeConfirmPct < 0 || InpDecisionMinimumVolumeConfirmPct > 100)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpDecisionMaximumExhaustionPct < 0 || InpDecisionMaximumExhaustionPct > 100)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpDecisionMinimumEvidenceVotes < 0 || InpDecisionMinimumEvidenceVotes > 5)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpDecisionMaximumSpreadPoints < 0)
+      return INIT_PARAMETERS_INCORRECT;
+   if (InpDecisionLogHumanActions && StringLen(InpDecisionLogFileName) == 0)
+      return INIT_PARAMETERS_INCORRECT;
+
+   InitializeHumanDecisionSupport();
 
    BuildHUDStorageKeys();
    if (InpHUDResetSavedPosition)
@@ -205,7 +292,7 @@ int OnInit()
    PlotIndexSetInteger(0, PLOT_ARROW_SHIFT, -8);
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-   IndicatorSetString(INDICATOR_SHORTNAME, "MarketRegime Zones (v2.15)");
+   IndicatorSetString(INDICATOR_SHORTNAME, "MarketRegime Zones (v2.17)");
    return INIT_SUCCEEDED;
 }
 
@@ -241,6 +328,7 @@ int OnCalculate(const int rates_total,
    ArraySetAsSeries(low, true);
    ArraySetAsSeries(close, true);
    ArraySetAsSeries(tick_volume, true);
+   ArraySetAsSeries(spread, true);
 
    const int window = InpWindow;
    const int lastValid = rates_total - window;
@@ -270,6 +358,8 @@ int OnCalculate(const int rates_total,
                           SlopeNormBuffer,
                           R2Buffer);
 
+   ZoneInfo zoneCatalog[];
+   int zoneCatalogCount = 0;
    ZoneInfo renderZones[];
    int renderZoneCount = 0;
    ZoneSelectionState zoneState;
@@ -290,6 +380,8 @@ int OnCalculate(const int rates_total,
                InpOnlyLastActiveAndLastBroken,
                InpMaxZonesOnChart,
                InpDebug,
+               zoneCatalog,
+               zoneCatalogCount,
                renderZones,
                renderZoneCount,
                zoneState);
@@ -450,6 +542,37 @@ int OnCalculate(const int rates_total,
    hudState.volumeRatio = (hasVolume ? volumeState.ratio : 0.0);
    hudState.volumeSlope01 = (hasVolume ? volumeState.slope01 : 0.0);
 
+   g_hud_latest_state = hudState;
+   g_hud_has_latest_state = true;
+
+   if (InpEnableDecisionEvents && lastValid >= 1)
+   {
+      StateEngineConfig eventConfig;
+      ConfigureIndicatorStateEngine(eventConfig);
+      ZoneSelectionState closedZoneState;
+      SelectZonesAtIndex(1, zoneCatalog, zoneCatalogCount, closedZoneState);
+      StateSnapshot closedSnapshot;
+      if (ComputeStateSnapshotFromSelection(1,
+                                            close,
+                                            tick_volume,
+                                            FlagBuffer[1],
+                                            closedZoneState,
+                                            eps,
+                                            eventConfig,
+                                            closedSnapshot))
+      {
+         UpdateHumanDecisionEvent(closedSnapshot, 1, time, high, low, close, spread);
+      }
+      else
+      {
+         ResetHUDDecisionEvent(g_hud_decision_event);
+      }
+   }
+   else
+   {
+      ResetHUDDecisionEvent(g_hud_decision_event);
+   }
+
    if (InpEnableTrendHUD)
       RenderTrendHUD(hudState);
    else
@@ -468,6 +591,8 @@ void OnChartEvent(const int id,
                   const double &dparam,
                   const string &sparam)
 {
+   if (HandleHumanDecisionChartEvent(id, sparam))
+      return;
    HandleHUDChartEvent(id, sparam);
 }
 //+------------------------------------------------------------------+

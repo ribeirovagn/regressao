@@ -1,0 +1,112 @@
+{
+  "manifest_version": 1,
+  "status": "frozen_waiting_prospective_holdout",
+  "approved_for_mt5": false,
+  "development_only": true,
+  "future_labels_read": false,
+  "development_dataset": {
+    "sha256": "1a0070198f3cc200d67d31e8c2f4b0e152527db4002d8666502f8870b76935a7",
+    "rows": 3704,
+    "cutoff_signal_time": "2026-07-31 20:16:00"
+  },
+  "training_script": {
+    "path": "ML/train_walk_forward_candidate.py",
+    "sha256": "4cc2a7fe7d1ed4adc1a65f7578c2adf483210f6d26afa412538b968f641da904"
+  },
+  "evaluation_script": {
+    "path": "ML/evaluate_prospective_candidate.py",
+    "sha256": "d6a167dc87d477e895f84f0df4246c05f9a684f0bb7442d0e5ea01672ffc10f0"
+  },
+  "selection": {
+    "key": "stable_direction__random_forest",
+    "feature_policy": "stable_direction",
+    "model": "random_forest",
+    "threshold": 0.5473499552707267,
+    "feature_count": 10,
+    "feature_names_sha256": "399943bb2b3bc8e91b93a1418726fb317d85c92a8eb17e51432ad4db50660315",
+    "feature_names": [
+      "feature_mid_distance_directional_step",
+      "feature_break_boundary_distance_step",
+      "feature_exhaustion_delta",
+      "feature_volume_zscore",
+      "feature_exhaustion_slow",
+      "feature_zone_path_step",
+      "feature_close_location_directional",
+      "feature_upper_wick_step",
+      "feature_regime_slow",
+      "feature_bias_alignment"
+    ]
+  },
+  "model_parameters": {
+    "n_estimators": 500,
+    "max_depth": 6,
+    "min_samples_leaf": 20,
+    "max_features": "sqrt",
+    "class_weight": "balanced_subsample",
+    "n_jobs": -1,
+    "random_state": 42
+  },
+  "walk_forward_development": {
+    "fold_auc": [
+      0.5564025974025973,
+      0.5283060824068018,
+      0.5250403666857648,
+      0.5220172201722018
+    ],
+    "minimum_fold_auc": 0.5220172201722018,
+    "median_fold_auc": 0.5266732245462833,
+    "fold_profit_factor": [
+      1.974049113021731,
+      1.361617490915006,
+      1.6233926233925173,
+      1.1540457707879945
+    ],
+    "minimum_fold_profit_factor": 1.1540457707879945,
+    "fold_average_net_step_return": [
+      0.1469871943142857,
+      0.017484797561728396,
+      0.040944244220512814,
+      0.012228760003614456
+    ],
+    "oof_rows": 2219,
+    "oof_selected": 333,
+    "oof_coverage": 0.15006759801712483,
+    "oof_precision": 0.5525525525525525,
+    "oof_average_net_step_return": 0.05705928352732733,
+    "oof_profit_factor": 1.4961647803463987,
+    "onnx_max_probability_difference": 1.2034829111051693e-07
+  },
+  "artifacts": {
+    "joblib": {
+      "path": "ML/artifacts/prospective_candidate/prospective_breakout_candidate.joblib",
+      "sha256": "bfb55f4a25318df109eb9870cb881996b33aaf38fddd75b8609f7b1d4a58e0fa"
+    },
+    "onnx": {
+      "path": "ML/artifacts/prospective_candidate/prospective_breakout_candidate.onnx",
+      "sha256": "e6093ca9fa8d632f03ce420eddd474be831e5657f62d7e94f63a0e04761eaa63"
+    },
+    "feature_schema": {
+      "path": "ML/artifacts/prospective_candidate/prospective_feature_schema.json",
+      "sha256": "43151a8569f90d087b6880c11951d918a6f16750068b654807f7c68bda921ed5"
+    }
+  },
+  "prospective_gate": {
+    "minimum_new_events": 500,
+    "minimum_calendar_days_after_cutoff": 60
+  },
+  "prospective_approval_gate": {
+    "minimum_roc_auc": 0.52,
+    "minimum_selected_events": 50,
+    "minimum_coverage": 0.1,
+    "minimum_precision": 0.52,
+    "minimum_profit_factor": 1.1,
+    "minimum_average_net_step_return_exclusive": 0.0,
+    "approval_scope": "eligible_for_demo_forward_test_only"
+  },
+  "evaluation_rule": "Perform one prospective evaluation only after both gates pass. Do not retrain or retune from future outcomes.",
+  "prohibitions": [
+    "Do not connect this candidate to MT5 trading before prospective approval.",
+    "Do not inspect future label values while the prospective holdout is collecting.",
+    "Do not alter the feature order, model, model parameters, or threshold before evaluation."
+  ]
+}

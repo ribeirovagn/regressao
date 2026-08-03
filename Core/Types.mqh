@@ -28,6 +28,30 @@ enum ENUM_STEP_SOURCE
    STEP_SOURCE_LAST_BROKEN = 2
 };
 
+enum ENUM_HUD_EVENT_KIND
+{
+   HUD_EVENT_NONE = 0,
+   HUD_EVENT_IMMEDIATE = 1,
+   HUD_EVENT_CONTINUATION = 2,
+   HUD_EVENT_RETEST = 3
+};
+
+enum ENUM_HUD_EVENT_STATUS
+{
+   HUD_EVENT_STATUS_NONE = 0,
+   HUD_EVENT_STATUS_NEW = 1,
+   HUD_EVENT_STATUS_EVALUATING = 2,
+   HUD_EVENT_STATUS_INVALIDATED = 3,
+   HUD_EVENT_STATUS_EXPIRED = 4
+};
+
+enum ENUM_HUD_DECISION_HINT
+{
+   HUD_DECISION_WAIT = 0,
+   HUD_DECISION_EVALUATE = 1,
+   HUD_DECISION_AVOID = 2
+};
+
 struct LRMetrics
 {
    bool valid;
@@ -115,6 +139,45 @@ struct HUDState
    double volumeR2;
    double volumeRatio;
    double volumeSlope01;
+};
+
+struct HUDDecisionEvent
+{
+   bool valid;
+   string key;
+   ENUM_HUD_EVENT_KIND kind;
+   ENUM_HUD_EVENT_STATUS status;
+   ENUM_HUD_DECISION_HINT hint;
+   int direction;
+   datetime signalTime;
+   datetime breakTime;
+   int ageBars;
+   double boundary;
+   double step;
+   double signalClose;
+   double distanceStep;
+   int spreadPoints;
+   ENUM_REGIME_STATE regime;
+   int biasDir;
+   int microDir;
+   bool hasStrength;
+   int strengthPct;
+   bool hasBreakQuality;
+   int breakQualityPct;
+   bool hasExhaustion;
+   int exhaustionPct;
+   bool hasVolume;
+   int volumeBiasDir;
+   int volumeConfirmPct;
+   bool priceOutside;
+   bool biasAligned;
+   bool microAligned;
+   bool volumeAligned;
+   int evidenceVotes;
+   int evidenceTotal;
+   int riskFlags;
+   string evidenceText;
+   string riskText;
 };
 
 struct StateEngineConfig

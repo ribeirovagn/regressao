@@ -1,3 +1,15 @@
 # Compiled MetaTrader binaries
 *.ex5
+*.log
+
+# Local Codex workspace marker
+.codex
+
+# Local Python training environment
+.venv/
+__pycache__/
+*.py[cod]
+
+# Generated ML research artifacts
+ML/artifacts/
 AGENTS.md

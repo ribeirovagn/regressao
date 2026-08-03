@@ -448,13 +448,12 @@ void DetectZones(const int lastValid,
                  const bool onlyLastActiveAndLastBroken,
                  const int maxZonesOnChart,
                  const bool debug,
+                 ZoneInfo &zoneCatalog[],
+                 int &zoneCount,
                  ZoneInfo &renderZones[],
                  int &renderZoneCount,
                  ZoneSelectionState &selectionState)
 {
-   ZoneInfo zoneCatalog[];
-   int zoneCount = 0;
-
    BuildZoneCatalog(lastValid,
                     time,
                     high,

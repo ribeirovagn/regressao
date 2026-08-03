@@ -3,6 +3,7 @@
 
 #include "../Core/Types.mqh"
 #include "../Core/Utils.mqh"
+#include "../Core/HumanDecisionEvent.mqh"
 #include "HUDLayout.mqh"
 #include "HUDDragController.mqh"
 
@@ -13,7 +14,7 @@ string HUDDisplayTitle()
 
 string HUDDisplayVersion()
 {
-   return "v2.15";
+   return "v2.17";
 }
 
 string DirectionToText(const int dir)
@@ -188,6 +189,57 @@ int HUDResolvePanelWidth(const string exhaustText,
    return MathMax(HUDBasePanelWidth(), requiredW);
 }
 
+int HUDMiddleMetricRowGap(const int metricFontSize)
+{
+   return MathMax(HUD_MIDDLE_GRID_MIN_ROW_GAP, metricFontSize + 5);
+}
+
+int HUDRequiredMiddleGridHeight(const int metricFontSize)
+{
+   const int rowGap = HUDMiddleMetricRowGap(metricFontSize);
+   const int rowCount = 4;
+   const int contentH = (rowGap * (rowCount - 1)) + metricFontSize + 10;
+   return MathMax(HUD_MIDDLE_GRID_BASE_HEIGHT, contentH);
+}
+
+int HUDFooterRowGap(const int detailFontSize)
+{
+   return MathMax(HUD_FOOTER_MIN_ROW_GAP, detailFontSize + 5);
+}
+
+int HUDRequiredFooterHeight(const int detailFontSize,
+                            const bool showVolumeDetails)
+{
+   const int rowGap = HUDFooterRowGap(detailFontSize);
+   const int rowCount = (showVolumeDetails ? 2 : 1);
+   const int contentH = (rowGap * (rowCount - 1)) + detailFontSize + 12;
+   return MathMax(HUD_FOOTER_HEIGHT, contentH);
+}
+
+int HUDRequiredPanelHeight(const int middleGridH,
+                           const int footerH)
+{
+   int height = HUD_TOP_PADDING +
+                HUD_HEADER_HEIGHT +
+                HUD_DIVIDER_THICKNESS +
+                HUD_SECTION_GAP +
+                HUD_TOP_GRID_HEIGHT +
+                HUD_SECTION_GAP +
+                HUD_DIVIDER_THICKNESS +
+                HUD_SECTION_GAP +
+                middleGridH +
+                HUD_SECTION_GAP +
+                HUD_DIVIDER_THICKNESS +
+                HUD_SECTION_GAP +
+                footerH;
+   if (InpEnableDecisionEvents)
+      height += HUD_SECTION_GAP +
+                HUD_DIVIDER_THICKNESS +
+                HUD_SECTION_GAP +
+                HUD_DECISION_SECTION_HEIGHT;
+   return height + HUD_BOTTOM_PADDING;
+}
+
 void EnsureHUDRectangle(const string name)
 {
    if (ObjectFind(0, name) < 0)
@@ -198,6 +250,12 @@ void EnsureHUDLabel(const string name)
 {
    if (ObjectFind(0, name) < 0)
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+}
+
+void EnsureHUDButton(const string name)
+{
+   if (ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_BUTTON, 0, 0, 0);
 }
 
 void DeleteLegacyHUDObjects()
@@ -273,6 +331,41 @@ void SetHUDLabel(const string name,
    ObjectSetString(0, name, OBJPROP_TEXT, text);
 }
 
+void SetHUDButton(const string name,
+                  const int x,
+                  const int y,
+                  const int w,
+                  const int h,
+                  const string text,
+                  const color bgColor,
+                  const color borderColor,
+                  const color textColor,
+                  const int fontSize,
+                  const bool enabled)
+{
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_XSIZE, MathMax(0, w));
+   ObjectSetInteger(0, name, OBJPROP_YSIZE, MathMax(0, h));
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bgColor);
+   ObjectSetInteger(0, name, OBJPROP_BORDER_COLOR, borderColor);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTED, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, name, OBJPROP_STATE, false);
+   ObjectSetInteger(0, name, OBJPROP_ZORDER, (enabled ? 2 : 0));
+   ObjectSetString(0, name, OBJPROP_FONT, "Segoe UI Semibold");
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetString(0,
+                   name,
+                   OBJPROP_TOOLTIP,
+                   (enabled ? "Registra a decisao humana em CSV; nenhuma ordem sera enviada" : "Sem evento ativo"));
+}
+
 void EnsureHUDObjectsCreated()
 {
    bool bgCreated = false;
@@ -328,6 +421,23 @@ void EnsureHUDObjectsCreated()
    EnsureHUDLabel("LZ_HUD_DETAILS_VOLR2");
    EnsureHUDLabel("LZ_HUD_DETAILS_VOLRATIO");
    EnsureHUDLabel("LZ_HUD_DETAILS_VOLS");
+
+   if (InpEnableDecisionEvents)
+   {
+      EnsureHUDRectangle("LZ_HUD_DIVIDER_EVENT");
+      EnsureHUDLabel("LZ_HUD_EVENT_TITLE");
+      EnsureHUDLabel("LZ_HUD_EVENT_EVIDENCE");
+      EnsureHUDLabel("LZ_HUD_EVENT_RISK");
+      EnsureHUDLabel("LZ_HUD_EVENT_HINT");
+      EnsureHUDLabel("LZ_HUD_EVENT_FEEDBACK");
+      EnsureHUDButton("LZ_HUD_BTN_MARK_ENTRY");
+      EnsureHUDButton("LZ_HUD_BTN_IGNORE");
+   }
+   else
+   {
+      for (int eventObjectIndex = 42; eventObjectIndex < HUD_OBJECT_COUNT; ++eventObjectIndex)
+         ObjectDelete(0, HUDObjectName(eventObjectIndex));
+   }
 
    DeleteLegacyHUDObjects();
 
@@ -589,12 +699,12 @@ void RenderHUDMiddleGrid(const int x,
    const int col1X = contentX;
    const int col2X = col1X + colWidth + colSpacing;
    const int midSepX = col1X + colWidth + (colSpacing / 2);
-   const int stretch = MathMax(0, middleGridH - HUD_MIDDLE_GRID_BASE_HEIGHT);
+   const int rowGap = HUDMiddleMetricRowGap(metricFontSize);
 
    const int row1Y = middleGridY;
-   const int row2Y = middleGridY + 16 + (stretch / 4);
-   const int row3Y = middleGridY + 32 + ((2 * stretch) / 4);
-   const int row4Y = middleGridY + 48 + ((3 * stretch) / 4);
+   const int row2Y = middleGridY + rowGap;
+   const int row3Y = middleGridY + 2 * rowGap;
+   const int row4Y = middleGridY + 3 * rowGap;
 
    SetHUDRect("LZ_HUD_VSEP_MID",
               midSepX,
@@ -626,6 +736,7 @@ void RenderHUDMiddleGrid(const int x,
 void RenderHUDFooter(const int x,
                      const int panelW,
                      const int footerY,
+                     const int footerH,
                      const string r2Text,
                      const string erText,
                      const string sText,
@@ -641,13 +752,15 @@ void RenderHUDFooter(const int x,
 {
    const int contentX = x + HUD_SIDE_PADDING;
    const int contentW = MathMax(16, panelW - 2 * HUD_SIDE_PADDING);
-   const int iconY = footerY + 3;
    const int iconSize = 8;
+   const int rowStartY = footerY + 2;
    const int detailsX = contentX + 11;
    const int metricW = 48;
    const int metricGap = 10;
    const int metricsStartX = contentX + MathMax(82, contentW - (metricW * 3 + metricGap * 2));
-   const int volumeRowY = footerY + HUD_FOOTER_HEIGHT;
+   const int rowGap = HUDFooterRowGap(detailFontSize);
+   const int volumeRowY = rowStartY + rowGap;
+   const int iconY = footerY + MathMax(0, ((footerH - iconSize) / 2));
 
    SetHUDRect("LZ_HUD_DETAILS_ICON",
               contentX,
@@ -657,10 +770,10 @@ void RenderHUDFooter(const int x,
               detailsIconColor,
               (color)clrNONE,
               false);
-   SetHUDLabel("LZ_HUD_DETAILS_TXT", detailsX, footerY, "DETAILS", "Segoe UI Semibold", labelFontSize, labelColor);
-   SetHUDLabel("LZ_HUD_DETAILS_R2", metricsStartX, footerY, r2Text, "Segoe UI Semibold", detailFontSize, detailValueColor);
-   SetHUDLabel("LZ_HUD_DETAILS_ER", metricsStartX + metricW + metricGap, footerY, erText, "Segoe UI Semibold", detailFontSize, detailValueColor);
-   SetHUDLabel("LZ_HUD_DETAILS_S", metricsStartX + 2 * (metricW + metricGap), footerY, sText, "Segoe UI Semibold", detailFontSize, detailValueColor);
+   SetHUDLabel("LZ_HUD_DETAILS_TXT", detailsX, rowStartY, "DETAILS", "Segoe UI Semibold", labelFontSize, labelColor);
+   SetHUDLabel("LZ_HUD_DETAILS_R2", metricsStartX, rowStartY, r2Text, "Segoe UI Semibold", detailFontSize, detailValueColor);
+   SetHUDLabel("LZ_HUD_DETAILS_ER", metricsStartX + metricW + metricGap, rowStartY, erText, "Segoe UI Semibold", detailFontSize, detailValueColor);
+   SetHUDLabel("LZ_HUD_DETAILS_S", metricsStartX + 2 * (metricW + metricGap), rowStartY, sText, "Segoe UI Semibold", detailFontSize, detailValueColor);
    SetHUDLabel("LZ_HUD_DETAILS_VOLR2",
                metricsStartX,
                volumeRowY,
@@ -682,6 +795,163 @@ void RenderHUDFooter(const int x,
                "Segoe UI Semibold",
                detailFontSize,
                detailValueColor);
+}
+
+string HUDCompactDecisionText(const string text, const int maxCharacters)
+{
+   if (maxCharacters < 4 || StringLen(text) <= maxCharacters)
+      return text;
+   return StringSubstr(text, 0, maxCharacters - 3) + "...";
+}
+
+string HUDDecisionTitleText(const HUDDecisionEvent &event)
+{
+   if (!event.valid)
+      return "EVENTO: SEM EVENTO CONFIRMADO";
+   return StringFormat("EVENTO: %s | %s | %s | %d BARRAS",
+                       HUDEventKindToString(event.kind),
+                       HUDTradeDirectionToString(event.direction),
+                       HUDEventStatusToString(event.status),
+                       event.ageBars);
+}
+
+int HUDResolveDecisionPanelWidth(const int currentWidth,
+                                 const HUDDecisionEvent &event,
+                                 const int fontSize)
+{
+   if (!InpEnableDecisionEvents)
+      return currentWidth;
+
+   const string title = HUDCompactDecisionText(HUDDecisionTitleText(event), 62);
+   const string evidence = HUDCompactDecisionText("EVIDENCIAS: " + event.evidenceText, 62);
+   const string risks = HUDCompactDecisionText("RISCOS: " + event.riskText, 62);
+   const int textWidth = MathMax(MeasureHUDTextWidth(title, "Segoe UI Semibold", fontSize),
+                                 MathMax(MeasureHUDTextWidth(evidence, "Segoe UI", fontSize),
+                                         MeasureHUDTextWidth(risks, "Segoe UI", fontSize)));
+   return MathMax(currentWidth, MathMin(560, textWidth + 2 * HUD_SIDE_PADDING + 12));
+}
+
+color HUDDecisionHintColor(const ENUM_HUD_DECISION_HINT hint,
+                           const color evaluateColor,
+                           const color waitColor,
+                           const color avoidColor)
+{
+   if (hint == HUD_DECISION_EVALUATE)
+      return evaluateColor;
+   if (hint == HUD_DECISION_AVOID)
+      return avoidColor;
+   return waitColor;
+}
+
+void RenderHUDDecisionPanel(const int x,
+                            const int panelW,
+                            const int dividerY,
+                            const int decisionY,
+                            const HUDDecisionEvent &event,
+                            const color dividerColor,
+                            const color labelColor,
+                            const color neutralColor,
+                            const color evaluateColor,
+                            const color waitColor,
+                            const color avoidColor,
+                            const int fontSize)
+{
+   const int contentX = x + HUD_SIDE_PADDING;
+   const int contentW = MathMax(40, panelW - 2 * HUD_SIDE_PADDING);
+   SetHUDRect("LZ_HUD_DIVIDER_EVENT",
+              contentX + 2,
+              dividerY,
+              MathMax(12, contentW - 4),
+              HUD_DIVIDER_THICKNESS,
+              dividerColor,
+              (color)clrNONE,
+              false);
+
+   const string titleText = HUDCompactDecisionText(HUDDecisionTitleText(event), 62);
+   const string evidenceText = HUDCompactDecisionText("EVIDENCIAS: " + event.evidenceText, 62);
+   const string riskText = HUDCompactDecisionText("RISCOS: " + event.riskText, 62);
+   const string hintText = "SINTESE HUMANA: " + HUDDecisionHintToString(event.hint) + " | NAO EXECUTA ORDENS";
+   const color hintColor = HUDDecisionHintColor(event.hint, evaluateColor, waitColor, avoidColor);
+
+   SetHUDLabel("LZ_HUD_EVENT_TITLE",
+               contentX,
+               decisionY,
+               titleText,
+               "Segoe UI Semibold",
+               fontSize + 1,
+               (event.valid ? hintColor : neutralColor));
+   SetHUDLabel("LZ_HUD_EVENT_EVIDENCE",
+               contentX,
+               decisionY + 18,
+               evidenceText,
+               "Segoe UI",
+               fontSize,
+               (event.valid ? neutralColor : labelColor));
+   SetHUDLabel("LZ_HUD_EVENT_RISK",
+               contentX,
+               decisionY + 35,
+               riskText,
+               "Segoe UI",
+               fontSize,
+               (event.riskFlags > 0 || event.hint == HUD_DECISION_AVOID ? avoidColor : labelColor));
+   SetHUDLabel("LZ_HUD_EVENT_HINT",
+               contentX,
+               decisionY + 52,
+               hintText,
+               "Segoe UI Semibold",
+               fontSize,
+               hintColor);
+
+   const bool activeStatus = (event.valid &&
+                              (event.status == HUD_EVENT_STATUS_NEW ||
+                               event.status == HUD_EVENT_STATUS_EVALUATING));
+   const bool alreadyDecided = (activeStatus && HUDDecisionWasRecorded(event.key));
+   const string recordedAction = (alreadyDecided ? HUDRecordedDecisionAction(event.key) : "");
+   const bool buttonsEnabled = (activeStatus && !alreadyDecided);
+   const int buttonGap = 8;
+   const int buttonW = MathMax(40, (contentW - buttonGap) / 2);
+   const int buttonY = decisionY + 69;
+   const color enabledEntryBg = (color)ColorToARGB(clrDarkGreen, 178);
+   const color enabledIgnoreBg = (color)ColorToARGB(clrMaroon, 168);
+   const color disabledBg = (color)ColorToARGB(clrSlateGray, 48);
+   const color enabledText = (color)ColorToARGB(clrWhiteSmoke, 230);
+   const color disabledText = (color)ColorToARGB(clrSilver, 105);
+   const color enabledBorder = (color)ColorToARGB(clrSilver, 72);
+   const color disabledBorder = (color)ColorToARGB(clrSlateGray, 32);
+
+   SetHUDButton("LZ_HUD_BTN_MARK_ENTRY",
+                contentX,
+                buttonY,
+                buttonW,
+                HUD_DECISION_BUTTON_HEIGHT,
+                (alreadyDecided && recordedAction == "MARCAR_ENTRADA" ? "ENTRADA REGISTRADA" : "MARCAR ENTRADA"),
+                (buttonsEnabled ? enabledEntryBg : disabledBg),
+                (buttonsEnabled ? enabledBorder : disabledBorder),
+                (buttonsEnabled ? enabledText : disabledText),
+                fontSize,
+                buttonsEnabled);
+   SetHUDButton("LZ_HUD_BTN_IGNORE",
+                contentX + buttonW + buttonGap,
+                buttonY,
+                buttonW,
+                HUD_DECISION_BUTTON_HEIGHT,
+                (alreadyDecided && recordedAction == "IGNORAR" ? "EVENTO IGNORADO" : "IGNORAR"),
+                (buttonsEnabled ? enabledIgnoreBg : disabledBg),
+                (buttonsEnabled ? enabledBorder : disabledBorder),
+                (buttonsEnabled ? enabledText : disabledText),
+                fontSize,
+                buttonsEnabled);
+
+   string feedback = g_hud_decision_feedback;
+   if (StringLen(feedback) == 0)
+      feedback = (activeStatus ? "REGISTRO MANUAL EM CSV" : "AGUARDANDO NOVO EVENTO");
+   SetHUDLabel("LZ_HUD_EVENT_FEEDBACK",
+               contentX,
+               decisionY + 95,
+               HUDCompactDecisionText(feedback, 62),
+               "Segoe UI",
+               MathMax(7, fontSize - 1),
+               labelColor);
 }
 
 void DeleteTrendHUD()
@@ -796,15 +1066,21 @@ void RenderTrendHUD(const HUDState &state)
    const int titleFontSize = baseFont + 2;
    const int badgeFontSize = MathMax(7, baseFont - 1);
    const int detailFontSize = MathMax(7, baseFont - 1);
-   const int panelW = HUDResolvePanelWidth(exhaustText,
-                                           breakText,
-                                           volumeBiasText,
-                                           volumeConfirmText,
-                                           stepText,
-                                           stepSourceText,
-                                           energyText,
-                                           middleMetricFontSize);
-   const int panelH = HUDBasePanelHeight();
+   const int decisionFontSize = MathMax(7, baseFont - 1);
+   const int requiredMiddleGridH = HUDRequiredMiddleGridHeight(middleMetricFontSize);
+   const int requiredFooterH = HUDRequiredFooterHeight(detailFontSize, showVolumeDetails);
+   const int metricsPanelW = HUDResolvePanelWidth(exhaustText,
+                                                  breakText,
+                                                  volumeBiasText,
+                                                  volumeConfirmText,
+                                                  stepText,
+                                                  stepSourceText,
+                                                  energyText,
+                                                  middleMetricFontSize);
+   const int panelW = HUDResolveDecisionPanelWidth(metricsPanelW,
+                                                   g_hud_decision_event,
+                                                   decisionFontSize);
+   const int panelH = MathMax(HUDBasePanelHeight(), HUDRequiredPanelHeight(requiredMiddleGridH, requiredFooterH));
 
    HUDRememberPanelSize(panelW, panelH);
    if (!g_hud_user_moved)
@@ -817,8 +1093,8 @@ void RenderTrendHUD(const HUDState &state)
 
    const int x = MathMax(0, g_hud_x);
    const int y = MathMax(0, g_hud_y);
-   const int extraH = MathMax(0, panelH - HUDMinimumPanelHeight());
-   const int middleGridH = HUD_MIDDLE_GRID_BASE_HEIGHT + extraH;
+   const int middleGridH = requiredMiddleGridH;
+   const int footerH = requiredFooterH;
 
    const int headerY = y + HUD_TOP_PADDING;
    const int dividerTopY = headerY + HUD_HEADER_HEIGHT;
@@ -827,6 +1103,8 @@ void RenderTrendHUD(const HUDState &state)
    const int middleGridY = dividerMidY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
    const int dividerBottomY = middleGridY + middleGridH + HUD_SECTION_GAP;
    const int footerY = dividerBottomY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
+   const int dividerEventY = footerY + footerH + HUD_SECTION_GAP;
+   const int decisionY = dividerEventY + HUD_DIVIDER_THICKNESS + HUD_SECTION_GAP;
 
    RenderHUDBase(x, y, panelW, panelH, shadowColor, panelBgColor, accentColor);
    RenderHUDHeader(x,
@@ -888,6 +1166,7 @@ void RenderTrendHUD(const HUDState &state)
    RenderHUDFooter(x,
                    panelW,
                    footerY,
+                   footerH,
                    r2Text,
                    erText,
                    sText,
@@ -900,6 +1179,21 @@ void RenderTrendHUD(const HUDState &state)
                    detailValueColor,
                    labelFontSize,
                    detailFontSize);
+   if (InpEnableDecisionEvents)
+   {
+      RenderHUDDecisionPanel(x,
+                             panelW,
+                             dividerEventY,
+                             decisionY,
+                             g_hud_decision_event,
+                             dividerColor,
+                             labelColor,
+                             neutralValueColor,
+                             upColor,
+                             warnColor,
+                             downColor,
+                             decisionFontSize);
+   }
 }
 
 #endif
