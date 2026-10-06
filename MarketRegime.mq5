@@ -145,6 +145,8 @@ int g_hud_panel_w = 0;
 int g_hud_panel_h = 0;
 bool g_hud_is_dragging = false;
 bool g_hud_user_moved = false;
+bool g_has_render_signature = false;
+long g_last_render_signature = 0;
 string g_hud_key_x = "";
 string g_hud_key_y = "";
 string g_hud_key_moved = "";
@@ -164,6 +166,33 @@ string g_hud_key_moved = "";
 #include "HUD/HUDLayout.mqh"
 #include "HUD/HUDDragController.mqh"
 #include "HUD/HUDRenderer.mqh"
+
+long BuildVisibleRenderSignature(const ZoneInfo &renderZones[],
+                                 const int renderZoneCount,
+                                 const ZoneSelectionState &zoneState)
+{
+   long signature = 1469598103934665603;
+   signature = HashMix(signature, (long)renderZoneCount);
+   for (int i = 0; i < renderZoneCount; ++i)
+      signature = HashMix(signature, BuildZoneHash(renderZones[i]));
+
+   signature = HashMix(signature, (zoneState.hasProjectionZone ? 1 : 0));
+   signature = HashMix(signature, BuildZoneHash(zoneState.projectionZone));
+   signature = HashMix(signature, (InpDrawMidLine ? 1 : 0));
+   signature = HashMix(signature, (InpDrawProjectionLines ? 1 : 0));
+   signature = HashMix(signature, (InpProjectionIncludeZoneLevels ? 1 : 0));
+   signature = HashMix(signature, (long)InpProjectionCount);
+   signature = HashMix(signature, (long)InpProjectionLineWidth);
+   signature = HashMix(signature, (long)InpProjectionLineAlpha);
+   signature = HashMix(signature, (long)InpProjectionLineColor);
+   signature = HashMix(signature, (long)InpAlphaMin);
+   signature = HashMix(signature, (long)InpAlphaMax);
+   signature = HashMix(signature, (long)InpAlphaLenScale);
+   signature = HashMix(signature, (long)InpBorderMinWidth);
+   signature = HashMix(signature, (long)InpBorderMaxWidth);
+   signature = HashMix(signature, (InpOnlyLastActiveAndLastBroken ? 1 : 0));
+   return signature;
+}
 
 void ConfigureIndicatorStateEngine(StateEngineConfig &config)
 {
@@ -337,26 +366,37 @@ int OnCalculate(const int rates_total,
 
    const double slopeThreshold = GetSlopeThreshold(InpSlopeNormMode, InpSlopeThresholdMean, InpSlopeThresholdStd);
 
+   // A forming bar can change on every tick, while closed bars are immutable.
+   // Recalculate it plus the bars introduced since the last accepted call.
+   // A full pass is retained for first calculation and terminal history resets.
+   int recalculationCount = lastValid + 1;
+   if (prev_calculated > 0 && prev_calculated <= rates_total)
+   {
+      const int newlyAvailableBars = rates_total - prev_calculated;
+      recalculationCount = MathMin(lastValid + 1, MathMax(1, newlyAvailableBars + 1));
+   }
+
    ClearWarmupBuffers(rates_total, lastValid, MarkerBuffer, ScoreBuffer, FlagBuffer, SlopeNormBuffer, R2Buffer);
-   ComputeLRRegimeBuffers(rates_total,
-                          lastValid,
-                          window,
-                          high,
-                          low,
-                          close,
-                          eps,
-                          slopeThreshold,
-                          InpSlopeNormMode,
-                          InpSlopeThresholdMean,
-                          InpSlopeThresholdStd,
-                          InpR2Threshold,
-                          InpScoreSlopeWeight,
-                          InpKeepArrows,
-                          MarkerBuffer,
-                          ScoreBuffer,
-                          FlagBuffer,
-                          SlopeNormBuffer,
-                          R2Buffer);
+   ComputeLRRegimeBuffersRange(rates_total,
+                               lastValid,
+                               recalculationCount - 1,
+                               window,
+                               high,
+                               low,
+                               close,
+                               eps,
+                               slopeThreshold,
+                               InpSlopeNormMode,
+                               InpSlopeThresholdMean,
+                               InpSlopeThresholdStd,
+                               InpR2Threshold,
+                               InpScoreSlopeWeight,
+                               InpKeepArrows,
+                               MarkerBuffer,
+                               ScoreBuffer,
+                               FlagBuffer,
+                               SlopeNormBuffer,
+                               R2Buffer);
 
    ZoneInfo zoneCatalog[];
    int zoneCatalogCount = 0;
@@ -386,25 +426,33 @@ int OnCalculate(const int rates_total,
                renderZoneCount,
                zoneState);
 
-   ClearZoneObjects();
-   RenderZones(renderZones,
-               renderZoneCount,
-               InpDrawMidLine,
-               InpAlphaMin,
-               InpAlphaMax,
-               InpAlphaLenScale,
-               InpBorderMinWidth,
-               InpBorderMaxWidth);
-   RenderProjectionSelection(InpOnlyLastActiveAndLastBroken,
-                             zoneState.hasProjectionZone,
-                             zoneState.projectionZone,
-                             InpDrawProjectionLines,
-                             InpProjectionCount,
-                             InpProjectionIncludeZoneLevels,
-                             InpProjectionLineWidth,
-                             InpProjectionLineAlpha,
-                             InpProjectionLineColor,
-                             InpDebug);
+   const long renderSignature = BuildVisibleRenderSignature(renderZones,
+                                                            renderZoneCount,
+                                                            zoneState);
+   if (!g_has_render_signature || renderSignature != g_last_render_signature)
+   {
+      ClearZoneObjects();
+      RenderZones(renderZones,
+                  renderZoneCount,
+                  InpDrawMidLine,
+                  InpAlphaMin,
+                  InpAlphaMax,
+                  InpAlphaLenScale,
+                  InpBorderMinWidth,
+                  InpBorderMaxWidth);
+      RenderProjectionSelection(InpOnlyLastActiveAndLastBroken,
+                                zoneState.hasProjectionZone,
+                                zoneState.projectionZone,
+                                InpDrawProjectionLines,
+                                InpProjectionCount,
+                                InpProjectionIncludeZoneLevels,
+                                InpProjectionLineWidth,
+                                InpProjectionLineAlpha,
+                                InpProjectionLineColor,
+                                InpDebug);
+      g_last_render_signature = renderSignature;
+      g_has_render_signature = true;
+   }
 
    bool hasZoneEnergy = false;
    double zoneEnergy01 = 0.0;

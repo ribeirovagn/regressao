@@ -44,6 +44,7 @@ Most MT5 indicators summarize price through moving averages, oscillators, or mom
 - Calculates `VOLUME CONFIRM` from short-window volume slope, volume `R2`, and short-vs-long volume ratio using `tick_volume` as a participation proxy.
 - Calculates `ZONE ENERGY` only from price statistics: duration, compression, chop, and edge touches.
 - Throttles `OnCalculate()` with `InpOnCalculateDelaySeconds` to reduce redraw frequency if needed.
+- Recalculates only the forming/new bars after initialization and redraws zones/projections only when their visible state changes, reducing load during high tick-volume periods without changing regime rules.
 
 ## HUD Interpretation
 
@@ -579,6 +580,8 @@ Human-decision event inputs:
 | --- | --- | ---: | --- |
 | `InpDebug` | `bool` | `false` | Enables debug logging in the MT5 Journal. |
 | `InpOnCalculateDelaySeconds` | `int` | `5` | Minimum delay between `OnCalculate()` executions; `0` disables throttling. |
+
+After the initial full calculation (or a terminal-requested history refresh), the indicator recalculates only the forming bar and newly closed bars. Zone and projection chart objects are refreshed only when their visible geometry or rendering options change. This is an internal performance optimization; it does not alter the regime, zone, volume, or signal rules.
 
 ## Project Structure
 

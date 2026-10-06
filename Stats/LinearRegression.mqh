@@ -146,30 +146,35 @@ void ClearWarmupBuffers(const int rates_total,
    }
 }
 
-void ComputeLRRegimeBuffers(const int rates_total,
-                            const int last_valid,
-                            const int window,
-                            const double &high[],
-                            const double &low[],
-                            const double &close[],
-                            const double eps,
-                            const double slopeThreshold,
-                            const ENUM_SLOPE_NORM_MODE normMode,
-                            const double slopeThresholdMean,
-                            const double slopeThresholdStd,
-                            const double r2Threshold,
-                            const double scoreSlopeWeight,
-                            const bool keepArrows,
-                            double &markerBuffer[],
-                            double &scoreBuffer[],
-                            double &flagBuffer[],
-                            double &slopeNormBuffer[],
-                            double &r2Buffer[])
+// Recomputes only the most recent indices requested by the caller.  In series
+// arrays index zero is the forming bar, so historical values remain valid when
+// a tick changes only that bar.
+void ComputeLRRegimeBuffersRange(const int rates_total,
+                                 const int last_valid,
+                                 const int last_index_to_calculate,
+                                 const int window,
+                                 const double &high[],
+                                 const double &low[],
+                                 const double &close[],
+                                 const double eps,
+                                 const double slopeThreshold,
+                                 const ENUM_SLOPE_NORM_MODE normMode,
+                                 const double slopeThresholdMean,
+                                 const double slopeThresholdStd,
+                                 const double r2Threshold,
+                                 const double scoreSlopeWeight,
+                                 const bool keepArrows,
+                                 double &markerBuffer[],
+                                 double &scoreBuffer[],
+                                 double &flagBuffer[],
+                                 double &slopeNormBuffer[],
+                                 double &r2Buffer[])
 {
    const double wSlope = Clamp01(scoreSlopeWeight);
    const double wR2 = 1.0 - wSlope;
+   const int lastIndex = MathMin(last_valid, MathMax(0, last_index_to_calculate));
 
-   for (int i = last_valid; i >= 0; --i)
+   for (int i = lastIndex; i >= 0; --i)
    {
       double b_norm = 0.0;
       double r2 = 0.0;
@@ -216,6 +221,48 @@ void ComputeLRRegimeBuffers(const int rates_total,
          markerBuffer[i] = EMPTY_VALUE;
       }
    }
+}
+
+void ComputeLRRegimeBuffers(const int rates_total,
+                            const int last_valid,
+                            const int window,
+                            const double &high[],
+                            const double &low[],
+                            const double &close[],
+                            const double eps,
+                            const double slopeThreshold,
+                            const ENUM_SLOPE_NORM_MODE normMode,
+                            const double slopeThresholdMean,
+                            const double slopeThresholdStd,
+                            const double r2Threshold,
+                            const double scoreSlopeWeight,
+                            const bool keepArrows,
+                            double &markerBuffer[],
+                            double &scoreBuffer[],
+                            double &flagBuffer[],
+                            double &slopeNormBuffer[],
+                            double &r2Buffer[])
+{
+   ComputeLRRegimeBuffersRange(rates_total,
+                               last_valid,
+                               last_valid,
+                               window,
+                               high,
+                               low,
+                               close,
+                               eps,
+                               slopeThreshold,
+                               normMode,
+                               slopeThresholdMean,
+                               slopeThresholdStd,
+                               r2Threshold,
+                               scoreSlopeWeight,
+                               keepArrows,
+                               markerBuffer,
+                               scoreBuffer,
+                               flagBuffer,
+                               slopeNormBuffer,
+                               r2Buffer);
 }
 
 #endif
